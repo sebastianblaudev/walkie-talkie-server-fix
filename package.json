@@ -1,0 +1,28 @@
+{
+  "name": "walkie-talkie-rebuild",
+  "version": "1.0.0",
+  "description": "TOLKI // SECURE COMMS REBUILD",
+  "main": "app.js",
+  "scripts": {
+    "dev": "vite",
+    "start": "node server.cjs",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@capacitor/android": "^5.0.0",
+    "@capacitor/cli": "^5.0.0",
+    "@capacitor/core": "^5.0.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.7.2"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module"
+}

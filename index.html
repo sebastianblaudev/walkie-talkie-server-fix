@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TOLKI // SECURE COMMS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;500;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="overlay"></div>
+    <div class="device-container">
+        <!-- Rugged Casing Details -->
+        <div class="screw top-left"></div>
+        <div class="screw top-right"></div>
+        <div class="screw bottom-left"></div>
+        <div class="screw bottom-right"></div>
+
+        <div class="brand-logo">TOLKI</div>
+
+        <div class="screen-panel">
+            <div class="screen-overlay"></div>
+            <div class="header-bar">
+                <div id="status-text">OFFLINE</div>
+                <div class="signal-strength">
+                    <span></span><span></span><span></span><span></span>
+                </div>
+            </div>
+
+            <div class="main-display">
+                <div class="vis-labels" style="display: flex; justify-content: space-between; font-size: 10px; color: var(--neon-cyan); padding: 0 5px;">
+                    <span>TX (MIC)</span>
+                    <span>RX (REMOTE)</span>
+                </div>
+                <canvas id="visualizer" width="240" height="40"></canvas>
+                <canvas id="remote-visualizer" width="240" height="40" style="border-top: 1px solid #1a2f3a;"></canvas>
+                <div class="channel-info">
+                    <span class="label">CONN_ID</span>
+                    <span id="current-channel">--</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="control-grid">
+            <div class="input-group">
+                <input type="text" id="room-input" placeholder="0000" maxlength="4">
+                <button id="join-btn" class="tactical-btn secondary" disabled>SET</button>
+            </div>
+
+            <button id="power-btn" class="tactical-btn power">
+                <div class="icon-power"></div>
+                <span>PWR</span>
+            </button>
+        </div>
+
+        <div class="ptt-container">
+            <div class="glow-ring"></div>
+            <button id="talk-btn" class="ptt-main" disabled>
+                <span class="ptt-label">PUSH TO TALK</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="server-config" id="server-config-btn"
+        style="position: fixed; top: 10px; right: 10px; font-size: 10px; color: #444; cursor: pointer; z-index: 100;">⚙️
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
