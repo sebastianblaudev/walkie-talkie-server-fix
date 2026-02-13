@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S.W.A.T. ADMIN PORTAL</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Admin Specific Overrides */
+        body {
+            background-color: #0d0d0f;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Login Screen */
+        .login-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-box {
+            background: #1a1a1d;
+            padding: 40px;
+            border-radius: 12px;
+            border: 1px solid #333;
+            text-align: center;
+            width: 320px;
+        }
+
+        .login-box h2 {
+            color: #50E3C2;
+            margin-bottom: 24px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        .login-input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 16px;
+            background: #0d0d0f;
+            border: 1px solid #333;
+            color: #fff;
+            border-radius: 6px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 12px;
+            background: #50E3C2;
+            color: #000;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+        }
+
+        /* Dashboard Layout */
+        .dashboard-container {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s;
+        }
+
+        .dashboard-container.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* Sidebar */
+        .admin-sidebar {
+            width: 300px;
+            background: #1a1a1d;
+            border-right: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid #333;
+        }
+
+        .sidebar-header h3 {
+            font-size: 14px;
+            color: #888;
+            letter-spacing: 1px;
+        }
+
+        .op-name {
+            font-size: 20px;
+            font-weight: 700;
+            color: #fff;
+            margin-top: 4px;
+        }
+
+        .section-title {
+            padding: 20px 20px 10px;
+            font-size: 12px;
+            color: #666;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .channel-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 10px;
+        }
+
+        .channel-item {
+            padding: 12px;
+            background: #252529;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .channel-item span {
+            font-weight: 500;
+        }
+
+        .btn-icon {
+            background: none;
+            border: none;
+            color: #ff5e57;
+            cursor: pointer;
+        }
+
+        .add-channel-box {
+            padding: 16px;
+            border-top: 1px solid #333;
+            display: flex;
+            gap: 8px;
+        }
+
+        .input-sm {
+            flex: 1;
+            padding: 8px;
+            background: #0d0d0f;
+            border: 1px solid #333;
+            color: #fff;
+            border-radius: 4px;
+        }
+
+        .btn-sm {
+            padding: 8px 12px;
+            background: #50E3C2;
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .invite-box {
+            padding: 20px;
+            background: #252529;
+            margin: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .invite-box button {
+            width: 100%;
+            margin-top: 8px;
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+        }
+
+        /* Main Map Area */
+        .admin-main {
+            flex: 1;
+            position: relative;
+        }
+
+        #admin-map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .map-overlay-stats {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 12px 20px;
+            border-radius: 8px;
+            border: 1px solid #333;
+            backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Login Screen -->
+    <div id="login-screen" class="login-screen">
+        <div class="login-box">
+            <h2>COMMAND LOGIN</h2>
+            <div id="login-error" style="color: #ff5e57; font-size: 12px; margin-bottom: 12px; display: none;"></div>
+            <input type="text" id="op-id-input" class="login-input" placeholder="Operation ID (e.g. walmart-ops)">
+            <input type="password" id="op-pass-input" class="login-input" placeholder="Admin Password">
+            <button id="login-btn" class="btn-primary">AUTHENTICATE</button>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard-container" class="dashboard-container">
+        <!-- Sidebar -->
+        <div class="admin-sidebar">
+            <div class="sidebar-header">
+                <h3>OPERATIONAL COMMAND</h3>
+                <div class="op-name" id="display-op-id">LOADING...</div>
+            </div>
+
+            <div class="section-title">ACTIVE CHANNELS</div>
+            <div class="channel-list" id="channel-list">
+                <!-- Channels injected here -->
+            </div>
+
+            <div class="add-channel-box">
+                <input type="text" id="new-channel-name" class="input-sm" placeholder="New Channel Name">
+                <button id="add-channel-btn" class="btn-sm">ADD</button>
+            </div>
+
+            <div class="invite-box">
+                <div style="font-size: 12px; color: #aaa; margin-bottom: 8px;">OPERATOR INVITE LINK</div>
+                <button id="generate-invite-btn" class="btn-sm">GENERATE & COPY LINK</button>
+            </div>
+        </div>
+
+        <!-- Units Sidebar -->
+        <div class="units-sidebar">
+            <div class="sidebar-header">
+                <h3>ACTIVE OPERATORS</h3>
+                <div class="op-name" style="font-size: 14px; margin-top: 4px; color: #50E3C2;">LIVE FEED</div>
+            </div>
+            <div class="units-list" id="units-list">
+                <!-- Units injected here -->
+                <div style="padding: 20px; text-align: center; color: #444; font-size: 12px;">
+                    WAITING FOR SIGNALS...
+                </div>
+            </div>
+        </div>
+
+        <!-- Map -->
+        <div class="admin-main">
+            <div class="map-overlay-stats">
+                <span style="color:#50E3C2; font-weight:700;">LIVE UNITS:</span>
+                <span id="active-unit-count" style="color:#fff; margin-left: 8px;">0</span>
+            </div>
+            <div id="admin-map"></div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="admin.js"></script>
+</body>
+
+</html>
