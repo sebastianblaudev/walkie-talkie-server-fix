@@ -24,7 +24,7 @@ io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
     // --- Operation Management ---
-    const SUPER_ADMIN_KEY = "omega-level-access";
+    const SUPER_ADMIN_KEY = "Cclass2022***";
 
     socket.on('login-super-admin', ({ key }) => {
         if (key === SUPER_ADMIN_KEY) {
