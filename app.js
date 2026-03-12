@@ -91,7 +91,12 @@ const peers = {};
 const rtcConfig = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        { urls: 'stun:stun.ekiga.net' },
+        { urls: 'stun:stun.ideasip.com' }
     ],
     iceCandidatePoolSize: 10
 };
@@ -579,6 +584,10 @@ powerBtn.addEventListener('click', async () => {
 
 const startTx = () => {
     if (!isPoweredOn || !roomId || !gainNode) return;
+    
+    // Play a tiny tactical beep to confirm mic is live
+    playTacticalAlert();
+
     statusText.innerText = "TRANSMITTING";
     talkBtn.classList.add('talking');
     pttContainer.classList.add('transmitting');
@@ -704,11 +713,22 @@ function createPeerConnection(targetId) {
     }
 
     pc.ontrack = (event) => {
-        console.log('Received remote track');
+        console.log('Received remote track', event.streams);
+        const stream = event.streams[0];
+        
+        // Remove old audio if it exists
+        const oldAudio = document.getElementById(`audio-${targetId}`);
+        if (oldAudio) oldAudio.remove();
+
         const remoteAudio = new Audio();
-        remoteAudio.srcObject = event.streams[0];
+        remoteAudio.id = `audio-${targetId}`;
+        remoteAudio.srcObject = stream;
         remoteAudio.autoplay = true;
         remoteAudio.playsInline = true;
+        
+        // Mobile browsers often require the element to be in the DOM
+        remoteAudio.style.display = 'none';
+        document.body.appendChild(remoteAudio);
 
         // Visualizer for remote audio
         if (audioContext) {
@@ -723,8 +743,10 @@ function createPeerConnection(targetId) {
                 source.connect(remoteAnalyser);
                 remoteAnalyser.connect(audioContext.destination);
                 console.log("Remote audio routed to visualizer and output.");
+                
+                remoteAudio.play().catch(e => console.warn("Auto-play blocked, waiting for interaction", e));
             } catch (e) {
-                console.warn("Failed to route remote audio to main context, playing directly.", e);
+                console.warn("MediaElementSource failed (might be already connected), playing directly.", e);
                 remoteAudio.play();
             }
         }
