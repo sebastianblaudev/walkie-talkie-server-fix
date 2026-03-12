@@ -150,6 +150,7 @@ socket.on('operation-config', (config) => {
 
 function playTacticalAlert() {
     if (!audioContext) return;
+    if (audioContext.state === 'suspended') audioContext.resume();
     try {
         const osc = audioContext.createOscillator();
         const gainInfo = audioContext.createGain();

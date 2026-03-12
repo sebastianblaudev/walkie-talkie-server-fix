@@ -14,6 +14,7 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'landing.html')));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
 app.get('/gps', (req, res) => res.sendFile(path.join(__dirname, 'gps.html')));
 app.get('/superadmin', (req, res) => res.sendFile(path.join(__dirname, 'superadmin.html')));
+app.get('/index', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -354,9 +355,18 @@ io.on('connection', (socket) => {
     });
 
     // --- WebRTC ---
-    socket.on('offer', (data) => io.to(data.target).emit('offer', { offer: data.offer, caller: socket.id }));
-    socket.on('answer', (data) => io.to(data.target).emit('answer', { answer: data.answer, caller: socket.id }));
-    socket.on('ice-candidate', (data) => io.to(data.target).emit('ice-candidate', { candidate: data.candidate, caller: socket.id }));
+    socket.on('offer', (data) => {
+        console.log(`[WEBRTC] Offer from ${socket.id} to ${data.target}`);
+        io.to(data.target).emit('offer', { offer: data.offer, caller: socket.id });
+    });
+    socket.on('answer', (data) => {
+        console.log(`[WEBRTC] Answer from ${socket.id} to ${data.target}`);
+        io.to(data.target).emit('answer', { answer: data.answer, caller: socket.id });
+    });
+    socket.on('ice-candidate', (data) => {
+        // console.log(`[WEBRTC] ICE from ${socket.id} to ${data.target}`);
+        io.to(data.target).emit('ice-candidate', { candidate: data.candidate, caller: socket.id });
+    });
 
     socket.on('disconnect', async () => {
         const opId = socket.OpId;
