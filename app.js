@@ -68,6 +68,13 @@ function generateUUID() {
 }
 
 // --- Global Vars ---
+// --- Debug ---
+const debugInfo = document.createElement('div');
+debugInfo.style = "position:fixed; bottom:10px; right:10px; color:#50E3C2; font-size:9px; font-family:monospace; pointer-events:none; z-index:1000; background:rgba(0,0,0,0.5); padding:5px;";
+document.body.appendChild(debugInfo);
+function updateDebug(msg) { debugInfo.innerText = msg; console.log("[DEBUG]", msg); }
+updateDebug("Ready.");
+
 let localStream;
 let roomId;
 let isPoweredOn = false;
@@ -585,10 +592,14 @@ powerBtn.addEventListener('click', async () => {
 const startTx = () => {
     if (!isPoweredOn || !roomId || !gainNode) return;
     
+    // Resume context on EVERY talk click to be 100% sure
+    if (audioContext && audioContext.state === 'suspended') audioContext.resume();
+
     // Play a tiny tactical beep to confirm mic is live
     playTacticalAlert();
 
     statusText.innerText = "TRANSMITTING";
+    updateDebug("TX Active");
     talkBtn.classList.add('talking');
     pttContainer.classList.add('transmitting');
     if (signalStrength) {
@@ -713,42 +724,43 @@ function createPeerConnection(targetId) {
     }
 
     pc.ontrack = (event) => {
-        console.log('Received remote track', event.streams);
+        updateDebug(`Track Received from ${targetId}`);
         const stream = event.streams[0];
         
-        // Remove old audio if it exists
-        const oldAudio = document.getElementById(`audio-${targetId}`);
-        if (oldAudio) oldAudio.remove();
-
-        const remoteAudio = new Audio();
-        remoteAudio.id = `audio-${targetId}`;
-        remoteAudio.srcObject = stream;
-        remoteAudio.autoplay = true;
-        remoteAudio.playsInline = true;
+        let remoteAudio = document.getElementById(`audio-${targetId}`);
+        if (!remoteAudio) {
+            remoteAudio = new Audio();
+            remoteAudio.id = `audio-${targetId}`;
+            remoteAudio.autoplay = true;
+            remoteAudio.playsInline = true;
+            remoteAudio.style.display = 'none';
+            document.body.appendChild(remoteAudio);
+        }
         
-        // Mobile browsers often require the element to be in the DOM
-        remoteAudio.style.display = 'none';
-        document.body.appendChild(remoteAudio);
+        remoteAudio.srcObject = stream;
+        remoteAudio.volume = 1.0;
 
-        // Visualizer for remote audio
         if (audioContext) {
-            if (audioContext.state === 'suspended') audioContext.resume();
-            
-            try {
-                const source = audioContext.createMediaElementSource(remoteAudio);
-                remoteAnalyser = audioContext.createAnalyser();
-                remoteAnalyser.fftSize = 64;
-                remoteDataArray = new Uint8Array(remoteAnalyser.frequencyBinCount);
-                
-                source.connect(remoteAnalyser);
-                remoteAnalyser.connect(audioContext.destination);
-                console.log("Remote audio routed to visualizer and output.");
-                
-                remoteAudio.play().catch(e => console.warn("Auto-play blocked, waiting for interaction", e));
-            } catch (e) {
-                console.warn("MediaElementSource failed (might be already connected), playing directly.", e);
-                remoteAudio.play();
-            }
+            audioContext.resume().then(() => {
+                try {
+                    // We only connect once per session to avoid DOM errors
+                    if (!remoteAudio.connectedToContext) {
+                        const source = audioContext.createMediaElementSource(remoteAudio);
+                        remoteAnalyser = audioContext.createAnalyser();
+                        remoteAnalyser.fftSize = 64;
+                        remoteDataArray = new Uint8Array(remoteAnalyser.frequencyBinCount);
+                        
+                        source.connect(remoteAnalyser);
+                        remoteAnalyser.connect(audioContext.destination);
+                        remoteAudio.connectedToContext = true;
+                        updateDebug("Audio Bridged to Master");
+                    }
+                    remoteAudio.play();
+                } catch (e) {
+                    updateDebug("Bridge Error: " + e.message);
+                    remoteAudio.play();
+                }
+            });
         }
     };
 
@@ -776,28 +788,32 @@ function createOffer(targetId) {
         });
 }
 
+socket.on('ice-candidate', (data) => {
+    const pc = peers[data.caller];
+    if (pc) {
+        pc.addIceCandidate(new RTCIceCandidate(data.candidate))
+            .catch(e => updateDebug("ICE Error: " + e.message));
+    }
+});
+
 socket.on('offer', (data) => {
+    updateDebug(`Offer from ${data.caller}`);
     const pc = createPeerConnection(data.caller);
     pc.setRemoteDescription(new RTCSessionDescription(data.offer))
         .then(() => pc.createAnswer())
         .then(answer => pc.setLocalDescription(answer))
         .then(() => {
-            socket.emit('answer', {
-                target: data.caller,
-                answer: pc.localDescription
-            });
-        });
+            socket.emit('answer', { target: data.caller, answer: pc.localDescription });
+        })
+        .catch(e => updateDebug("Offer Error: " + e.message));
 });
 
 socket.on('answer', (data) => {
-    if (peers[data.caller]) {
-        peers[data.caller].setRemoteDescription(new RTCSessionDescription(data.answer));
-    }
-});
-
-socket.on('ice-candidate', (data) => {
-    if (peers[data.caller]) {
-        peers[data.caller].addIceCandidate(new RTCIceCandidate(data.candidate));
+    updateDebug(`Answer from ${data.caller}`);
+    const pc = peers[data.caller];
+    if (pc) {
+        pc.setRemoteDescription(new RTCSessionDescription(data.answer))
+            .catch(e => updateDebug("Answer Error: " + e.message));
     }
 });
 
