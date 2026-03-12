@@ -4,14 +4,18 @@ const getServerUrl = () => {
         return localStorage.getItem('walkieTalkieServer');
     }
 
-    // 2. Local Development (localhost or local network IP)
+    // 2. Network/Local Development
     const hostname = window.location.hostname;
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.')) {
-        return window.location.origin; // e.g. http://localhost:3000
+    const port = window.location.port;
+
+    // If we are on port 3001 (Vite/Dev), we must connect to port 3000 (Backend)
+    // regardless of whether we are on 'localhost' or an IP like '172.x.x.x'
+    if (port === '3001' || port === '5173') {
+        return `http://${hostname}:3000`;
     }
 
-    // 3. Production Fallback
-    return 'https://walkie-talkie-server-fix.onrender.com';
+    // 3. Fallback to current origin (Production or default)
+    return window.location.origin;
 };
 
 const serverUrl = getServerUrl();
@@ -21,8 +25,40 @@ let socket = io(serverUrl);
 // --- Operation Logic ---
 let currentOpId = null;
 const urlParams = new URLSearchParams(window.location.search);
-const opIdParam = urlParams.get('op');
-const tokenParam = urlParams.get('token');
+let opIdParam = urlParams.get('op');
+let tokenParam = urlParams.get('token');
+
+// --- Capacitor Deep Linking ---
+try {
+    const { App } = window.Capacitor?.Plugins || {};
+    if (App && typeof App.addListener === 'function') {
+        App.addListener('appUrlOpen', (event) => {
+            console.log('App opened with URL:', event.url);
+            try {
+                const url = new URL(event.url);
+                const op = url.searchParams.get('op');
+                const token = url.searchParams.get('token');
+
+                if (op && token) {
+                    opIdParam = op;
+                    tokenParam = token;
+                    currentOpId = op;
+
+                    if (!isPoweredOn) {
+                        const startOverlay = document.getElementById('start-overlay');
+                        if (startOverlay) startOverlay.click();
+                    } else {
+                        // Reconnect to join new operation
+                        socket.disconnect();
+                        socket.connect();
+                    }
+                }
+            } catch (e) { console.error("Error parsing deep link", e); }
+        });
+    }
+} catch (e) {
+    console.warn("Capacitor App plugin not found, skipping deep link attach.");
+}
 
 function generateUUID() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -77,6 +113,14 @@ remoteCanvasCtx = remoteCanvas.getContext('2d');
 
 // --- Socket Events ---
 
+const opCountDisplay = document.getElementById('operator-count-display');
+
+socket.on('channel-users-count', (count) => {
+    if (opCountDisplay) {
+        opCountDisplay.innerText = `${count} OPERATOR${count !== 1 ? 'S' : ''} ONLINE`;
+    }
+});
+
 // Socket Connect Handler moved below joinRoom for better scoping
 
 socket.on('operation-config', (config) => {
@@ -84,6 +128,61 @@ socket.on('operation-config', (config) => {
     currentOpId = config.opId;
     statusText.innerText = `OP: ${config.opId.toUpperCase()}`;
     updateChannelUI(config.channels);
+
+    // Auto-join default channel if not already in one
+    if (config.defaultChannel && !roomId && isPoweredOn) {
+        console.log("Auto-joining default channel:", config.defaultChannel);
+        joinRoom(config.defaultChannel);
+    }
+});
+
+function playTacticalAlert() {
+    if (!audioContext) return;
+    try {
+        const osc = audioContext.createOscillator();
+        const gainInfo = audioContext.createGain();
+        osc.connect(gainInfo);
+        gainInfo.connect(audioContext.destination);
+
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(880, audioContext.currentTime); // A5
+        osc.frequency.setValueAtTime(1108.73, audioContext.currentTime + 0.1); // C#6
+
+        gainInfo.gain.setValueAtTime(0, audioContext.currentTime);
+        gainInfo.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.02);
+        gainInfo.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
+
+        osc.start(audioContext.currentTime);
+        osc.stop(audioContext.currentTime + 0.5);
+    } catch (e) {
+        console.warn("Audio alert failed", e);
+    }
+}
+
+socket.on('force-join-channel', (channelName) => {
+    console.log(`Command received: Force join ${channelName}`);
+    if (isPoweredOn && roomId !== channelName) {
+        joinRoom(channelName);
+
+        playTacticalAlert();
+
+        const overlay = document.getElementById('override-overlay');
+        const msg = document.getElementById('override-message');
+        if (overlay && msg) {
+            msg.innerText = `REROUTING TO ${channelName}...`;
+            overlay.classList.remove('hidden');
+            overlay.classList.add('show');
+
+            // Hide after 3 seconds
+            setTimeout(() => {
+                overlay.classList.remove('show');
+                setTimeout(() => overlay.classList.add('hidden'), 300); // Wait for fade out
+            }, 3000);
+        }
+
+        statusText.innerText = "OVERRIDE...";
+        setTimeout(() => statusText.innerText = `ID: ${userId}`, 3000); // restore
+    }
 });
 
 socket.on('join-error', (msg) => {
@@ -194,6 +293,13 @@ function joinRoom(room) {
     // After connect, socket.on('connect') will fire.
     // We need to ensure we join the channel room there if roomId is set.
     updateChannelSelection(room);
+
+    // Reset flag after a short delay to allow socket reconnection
+    setTimeout(() => {
+        isSwitchingChannels = false;
+        statusText.innerText = "ONLINE";
+        console.log(`Switched to channel ${room}`);
+    }, 1500);
 }
 
 // Update connect handler to join channel if roomId is set
@@ -309,6 +415,104 @@ function forcePowerOff() {
     socket.disconnect();
 }
 
+// --- Man Down Protocol Logic ---
+let manDownTimer = null;
+let sosCountdown = 15;
+let lastMotionTime = Date.now();
+const INACTIVITY_THRESHOLD = 60000; // 60 seconds
+const FALL_THRESHOLD = 20; // High acceleration
+let isSosActive = false;
+let sosCountdownInterval = null;
+
+const sosOverlay = document.getElementById('sos-countdown-overlay');
+const sosTimerDisplay = document.getElementById('sos-timer');
+const cancelSosBtn = document.getElementById('cancel-sos-btn');
+
+function triggerManDown() {
+    if (!isPoweredOn || isSosActive) return;
+    isSosActive = true;
+    sosCountdown = 15;
+
+    playTacticalAlert();
+
+    if (sosOverlay && sosTimerDisplay) {
+        sosTimerDisplay.innerText = `ACTIVATING SOS IN ${sosCountdown}s`;
+        sosOverlay.classList.remove('hidden');
+        sosOverlay.classList.add('show');
+    }
+
+    if (navigator.vibrate) {
+        navigator.vibrate([500, 200, 500, 200, 500]);
+    }
+
+    sosCountdownInterval = setInterval(() => {
+        sosCountdown--;
+        if (sosTimerDisplay) sosTimerDisplay.innerText = `ACTIVATING SOS IN ${sosCountdown}s`;
+
+        if (sosCountdown <= 0) {
+            clearInterval(sosCountdownInterval);
+            emitSosAlert();
+        }
+    }, 1000);
+}
+
+if (cancelSosBtn) {
+    cancelSosBtn.addEventListener('click', () => {
+        isSosActive = false;
+        clearInterval(sosCountdownInterval);
+        if (sosOverlay) {
+            sosOverlay.classList.remove('show');
+            setTimeout(() => sosOverlay.classList.add('hidden'), 300);
+        }
+        lastMotionTime = Date.now();
+    });
+}
+
+function emitSosAlert() {
+    if (sosOverlay && sosTimerDisplay) {
+        sosTimerDisplay.innerText = "SOS TRANSMITTED";
+        setTimeout(() => {
+            sosOverlay.classList.remove('show');
+            setTimeout(() => sosOverlay.classList.add('hidden'), 300);
+        }, 3000);
+    }
+
+    if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition((position) => {
+            socket.emit('sos-alert', { lat: position.coords.latitude, lng: position.coords.longitude });
+        }, () => {
+            socket.emit('sos-alert', { lat: 0, lng: 0 });
+        });
+    } else {
+        socket.emit('sos-alert', { lat: 0, lng: 0 });
+    }
+}
+
+window.addEventListener('devicemotion', (e) => {
+    if (!isPoweredOn) return;
+    const acc = e.accelerationIncludingGravity;
+    if (!acc) return;
+
+    const magnitude = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
+
+    if (magnitude > FALL_THRESHOLD) {
+        console.log("Significant impact detected.");
+        triggerManDown();
+    }
+
+    if (Math.abs(magnitude - 9.8) > 1.0) {
+        lastMotionTime = Date.now();
+    }
+});
+
+setInterval(() => {
+    if (!isPoweredOn || isSosActive) return;
+    if (Date.now() - lastMotionTime > INACTIVITY_THRESHOLD) {
+        console.log("Inactivity detected.");
+        triggerManDown();
+    }
+}, 5000);
+
 powerBtn.addEventListener('click', async () => {
     isPoweredOn = !isPoweredOn;
     if (isPoweredOn) {
@@ -346,6 +550,15 @@ powerBtn.addEventListener('click', async () => {
             drawVisualizer();
             statusText.innerText = "STANDBY";
             joinBtn.disabled = false;
+
+            // Trigger auto-join if we already received config but weren't powered on
+            const firstChannel = document.querySelector('.channel-item')?.getAttribute('data-channel');
+            if (!roomId && firstChannel) { // Fallback if we don't have the config handy but UI rendered
+                const chItems = document.querySelectorAll('.channel-item');
+                let targetCh = firstChannel;
+                chItems.forEach(i => { if (i.getAttribute('data-channel') === 'BASE') targetCh = 'BASE'; });
+                joinRoom(targetCh);
+            }
         } catch (err) {
             console.error("Error accessing microphone:", err);
             statusText.innerText = "MIC ERROR";

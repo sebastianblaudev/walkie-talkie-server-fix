@@ -48,7 +48,7 @@
             <div class="channel-header">
                 <span class="subtitle">ACTIVE CHANNEL</span>
                 <h1 class="channel-name">MAIN<br>OPERATION</h1>
-                <span class="operator-count">4 OPERATORS ONLINE</span>
+                <span class="operator-count" id="operator-count-display">-- OPERATORS ONLINE</span>
             </div>
 
             <div class="visualizer-container">
@@ -214,6 +214,26 @@
 
     <div class="server-config" id="server-config-btn"
         style="position: fixed; bottom: 10px; left: 10px; opacity: 0; pointer-events: auto; width: 20px; height: 20px;">
+    </div>
+
+    <!-- Tactical Override Overlay -->
+    <div id="override-overlay" class="override-overlay hidden">
+        <div class="override-content">
+            <span class="material-icons-round override-icon">warning</span>
+            <div class="override-title">TACTICAL OVERRIDE</div>
+            <div class="override-message" id="override-message">REROUTING COMMS...</div>
+        </div>
+    </div>
+
+    <!-- SOS Countdown Overlay -->
+    <div id="sos-countdown-overlay" class="override-overlay hidden" style="background: rgba(255, 59, 48, 0.9);">
+        <div class="override-content">
+            <span class="material-icons-round override-icon" style="color:#fff;">sensors</span>
+            <div class="override-title" style="color:#fff;">MAN DOWN PROTOCOL</div>
+            <div class="override-message" style="color:#fff;" id="sos-timer">ACTIVATING SOS IN 15s</div>
+            <button id="cancel-sos-btn" class="btn-primary"
+                style="margin-top: 20px; background: #fff; color: #ff3b30;">CANCEL AUTO-SOS</button>
+        </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"

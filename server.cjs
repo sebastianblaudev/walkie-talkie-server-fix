@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
 const cors = require('cors');
-const supabase = require('./db'); // Import Supabase Client
+const supabase = require('./db.cjs'); // Import Supabase Client
 
 const app = express();
 const path = require('path');
@@ -59,8 +59,12 @@ io.on('connection', (socket) => {
         ];
         await supabase.from('channels').insert(defaultChannels);
 
+        // Generate initial invite token
+        const token = Math.random().toString(36).substring(2, 10);
+        await supabase.from('operation_tokens').insert([{ token, op_id: opId }]);
+
         console.log(`[SUPER ADMIN] Tenant created: ${opId}`);
-        socket.emit('tenant-created', { opId, success: true });
+        socket.emit('tenant-created', { opId, success: true, token });
     });
 
     socket.on('list-tenants', async ({ key }) => {
@@ -115,6 +119,31 @@ io.on('connection', (socket) => {
     });
 
     // --- Channel Management ---
+    const fusionMap = {}; // Maps `${opId}-${subId}` -> masterId
+
+    socket.on('fuse-incidents', async ({ masterId, subIds }) => {
+        const opId = socket.AdminOpId;
+        if (!opId) return;
+
+        const { error } = await supabase.from('channels').insert([{ op_id: opId, name: masterId }]);
+        if (!error) {
+            notifyChannelsUpdated(opId);
+
+            subIds.forEach(subId => {
+                fusionMap[`${opId}-${subId}`] = masterId;
+                // Move everyone currently in subId room to masterId
+                const subRoomName = `${opId}-${subId}`;
+                const clients = io.sockets.adapter.rooms.get(subRoomName);
+                if (clients) {
+                    for (const clientId of clients) {
+                        io.to(clientId).emit('force-join-channel', masterId);
+                    }
+                }
+
+                io.to(`admin-${opId}`).emit('incident-fused', { masterId, subIds });
+            });
+        }
+    });
 
     socket.on('add-channel', async ({ channelName }) => {
         const opId = socket.AdminOpId;
@@ -123,6 +152,48 @@ io.on('connection', (socket) => {
         const { error } = await supabase.from('channels').insert([{ op_id: opId, name: channelName }]);
         if (!error) {
             notifyChannelsUpdated(opId);
+        }
+    });
+
+    socket.on('assign-to-incident', ({ incidentId, unitSocketId }) => {
+        const opId = socket.AdminOpId;
+        if (!opId) return;
+
+        // Force the assigned unit to join the incident channel
+        io.to(unitSocketId).emit('force-join-channel', incidentId);
+
+        // Also force the admin to join the incident channel so they can talk
+        socket.emit('force-join-channel', incidentId);
+    });
+
+    socket.on('create-tactical-zone', async ({ channelName, unitSocketIds }) => {
+        const opId = socket.AdminOpId;
+        if (!opId) return;
+
+        // 1. Create the ephemeral channel in DB
+        const { error } = await supabase.from('channels').insert([{ op_id: opId, name: channelName }]);
+
+        if (!error) {
+            notifyChannelsUpdated(opId);
+
+            // 2. Force all selected units into this channel
+            unitSocketIds.forEach(targetId => {
+                io.to(targetId).emit('force-join-channel', channelName);
+            });
+
+            // 3. Force Admin into the channel
+            socket.emit('force-join-channel', channelName);
+
+            // 4. Auto-destruct after 5 minutes (300000 ms) of inactivity
+            // In a real app we'd reset this timer on audio activity, but for now a fixed TTL
+            setTimeout(async () => {
+                const { error: delErr } = await supabase.from('channels').delete().match({ op_id: opId, name: channelName });
+                if (!delErr) {
+                    notifyChannelsUpdated(opId);
+                    // Force remaining users in this room back to BASE
+                    io.to(`${opId}-${channelName}`).emit('force-join-channel', 'BASE');
+                }
+            }, 300000);
         }
     });
 
@@ -139,8 +210,15 @@ io.on('connection', (socket) => {
     async function notifyChannelsUpdated(opId) {
         const { data: channels } = await supabase.from('channels').select('name').eq('op_id', opId);
         const list = channels.map(c => c.name);
+
+        let defaultChannel = 'BASE';
+        if (channels && channels.length > 0) {
+            const hasBase = channels.some(c => c.name === 'BASE');
+            if (!hasBase) defaultChannel = channels[0].name;
+        }
+
         io.to(`admin-${opId}`).emit('channels-updated', list);
-        io.to(opId).emit('operation-config', { channels: list, opId });
+        io.to(opId).emit('operation-config', { channels: list, opId, defaultChannel });
     }
 
     // --- User Logic ---
@@ -156,9 +234,17 @@ io.on('connection', (socket) => {
 
         // Get Channels
         const { data: channels } = await supabase.from('channels').select('name').eq('op_id', opId);
+
+        let defaultChannel = 'BASE';
+        if (channels && channels.length > 0) {
+            const hasBase = channels.some(c => c.name === 'BASE');
+            if (!hasBase) defaultChannel = channels[0].name;
+        }
+
         socket.emit('operation-config', {
             channels: channels.map(c => c.name),
-            opId
+            opId,
+            defaultChannel
         });
 
         // Register Unit
@@ -187,8 +273,42 @@ io.on('connection', (socket) => {
 
     socket.on('join-channel', ({ opId, channelName }) => {
         if (socket.OpId !== opId) return;
-        socket.join(`${opId}-${channelName}`);
-        socket.to(`${opId}-${channelName}`).emit('user-connected', socket.id);
+
+        let targetChannel = channelName;
+        // Redirect if fused
+        if (fusionMap[`${opId}-${channelName}`]) {
+            targetChannel = fusionMap[`${opId}-${channelName}`];
+            socket.emit('force-join-channel', targetChannel);
+            return;
+        }
+
+        // Leave previous channel
+        if (socket.CurrentChannel) {
+            const oldRoom = `${opId}-${socket.CurrentChannel}`;
+            socket.leave(oldRoom);
+            const oldRoomSize = io.sockets.adapter.rooms.get(oldRoom)?.size || 0;
+            io.to(oldRoom).emit('channel-users-count', oldRoomSize);
+        }
+
+        socket.CurrentChannel = channelName;
+        const newRoom = `${opId}-${channelName}`;
+        socket.join(newRoom);
+        socket.to(newRoom).emit('user-connected', socket.id);
+
+        const newRoomSize = io.sockets.adapter.rooms.get(newRoom)?.size || 0;
+        io.to(newRoom).emit('channel-users-count', newRoomSize);
+    });
+
+    socket.on('leave-room', (channelName) => {
+        const opId = socket.OpId;
+        if (!opId) return;
+        const roomName = `${opId}-${channelName}`;
+        socket.leave(roomName);
+        if (socket.CurrentChannel === channelName) {
+            socket.CurrentChannel = null;
+        }
+        const roomSize = io.sockets.adapter.rooms.get(roomName)?.size || 0;
+        io.to(roomName).emit('channel-users-count', roomSize);
     });
 
     // --- GPS Logic ---
@@ -206,16 +326,31 @@ io.on('connection', (socket) => {
         };
 
         // Update DB
-        // We use map to match 'id' which is the primary key (userId)
-        // But wait, 'units' table PK is 'id' (userId).
-        // upsert needs primary key.
-        // We need to make sure we have the userId. It's in 'data.id' from client usually?
-        // Client app.js: socket.emit('update-location', { lat, lng, id: uid, callSign: csign });
-
         await supabase.from('units').update(updateData).eq('id', data.id);
 
         // Propagate to Admin
         io.to(`admin-${opId}`).emit('update-location', { ...data, socketId: socket.id, status: "ACTIVE" });
+    });
+
+    socket.on('sos-alert', async ({ lat, lng }) => {
+        const opId = socket.OpId;
+        if (!opId) return;
+
+        const sosTicket = `SOS-TICKET-${socket.UserId || Date.now().toString().slice(-4)}`;
+
+        // Insert channel
+        await supabase.from('channels').insert([{ op_id: opId, name: sosTicket }]);
+
+        notifyChannelsUpdated(opId);
+
+        io.to(socket.id).emit('force-join-channel', sosTicket);
+
+        io.to(`admin-${opId}`).emit('sos-triggered', {
+            userId: socket.UserId,
+            channelName: sosTicket,
+            lat,
+            lng
+        });
     });
 
     // --- WebRTC ---
@@ -226,6 +361,12 @@ io.on('connection', (socket) => {
     socket.on('disconnect', async () => {
         const opId = socket.OpId;
         if (opId) {
+            if (socket.CurrentChannel) {
+                const roomName = `${opId}-${socket.CurrentChannel}`;
+                const roomSize = io.sockets.adapter.rooms.get(roomName)?.size || 0;
+                io.to(roomName).emit('channel-users-count', roomSize);
+            }
+
             // Mark as Offline
             if (socket.UserId) {
                 await supabase.from('units').update({ status: 'OFFLINE', socket_id: null }).eq('id', socket.UserId);
@@ -235,6 +376,71 @@ io.on('connection', (socket) => {
         console.log('User disconnected:', socket.id);
     });
 });
+
+// --- Chaos Index Evaluator ---
+const operationChaosScores = {};
+
+setInterval(() => {
+    const activeOpIds = new Set();
+    for (const [room, _] of io.sockets.adapter.rooms.entries()) {
+        if (room.startsWith('admin-')) {
+            activeOpIds.add(room.replace('admin-', ''));
+        }
+    }
+
+    activeOpIds.forEach(opId => {
+        let rawScore = 0;
+        let activeIncidents = 0;
+        let sosAlerts = 0;
+        let busyOperators = 0;
+
+        const rooms = io.sockets.adapter.rooms;
+        for (const [room, clients] of rooms.entries()) {
+            if (room.startsWith(`${opId}-`)) {
+                const channelName = room.replace(`${opId}-`, '');
+
+                let opCount = 0;
+                clients.forEach(socketId => {
+                    const s = io.sockets.sockets.get(socketId);
+                    if (s && s.UserId) opCount++;
+                });
+
+                if (channelName.startsWith('INCIDENT-')) {
+                    activeIncidents++;
+                    rawScore += 15;
+                } else if (channelName.startsWith('SOS-')) {
+                    sosAlerts++;
+                    rawScore += 30;
+                }
+
+                if (channelName !== 'BASE' && channelName !== 'LOGISTICS') {
+                    busyOperators += opCount;
+                    rawScore += opCount * 3;
+                }
+            }
+        }
+
+        if (!operationChaosScores[opId]) {
+            operationChaosScores[opId] = { currentScore: 0 };
+        }
+
+        // Cap
+        let targetScore = Math.min(rawScore, 100);
+
+        // Hysteresis
+        const prevScore = operationChaosScores[opId].currentScore;
+        const smoothScore = (prevScore * 0.8) + (targetScore * 0.2);
+        operationChaosScores[opId].currentScore = smoothScore;
+
+        let index = Math.round(smoothScore);
+        let state = "BAJO";
+        if (index >= 75) state = "CRÍTICO";
+        else if (index >= 50) state = "ALTO";
+        else if (index >= 25) state = "MEDIO";
+
+        io.to(`admin-${opId}`).emit('chaos-index-updated', { index, state });
+    });
+}, 3000);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {

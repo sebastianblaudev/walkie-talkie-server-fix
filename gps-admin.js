@@ -7,8 +7,10 @@ const startOverlay = document.getElementById('start-overlay');
 
 let serverUrl = localStorage.getItem('walkieTalkieServer');
 if (!serverUrl) {
-    if (window.location.hostname === 'localhost' && window.location.port === '5173') {
-        serverUrl = 'http://localhost:3000';
+    const hostname = window.location.hostname;
+    const port = window.location.port;
+    if (port === '5173' || port === '3001') {
+        serverUrl = `http://${hostname}:3000`;
     } else {
         serverUrl = window.location.origin; // Production usually same origin for socket.io if proxy set up, or render URL
         // If on Render but accessing via render domain, origin is correct.
@@ -79,6 +81,80 @@ function initMap() {
         subdomains: 'abcd',
         maxZoom: 20
     }).addTo(leafletMap);
+
+    // --- Tactical Drag (Shift + Click Drag) ---
+    let isSelecting = false;
+    let selectionBox = null;
+    let startPoint = null;
+
+    leafletMap.on('mousedown', (e) => {
+        if (!e.originalEvent.shiftKey) return;
+        isSelecting = true;
+        leafletMap.dragging.disable(); // Prevent map panning while drawing
+        startPoint = e.latlng;
+
+        if (selectionBox) {
+            selectionBox.remove();
+        }
+
+        selectionBox = L.rectangle([startPoint, startPoint], {
+            color: '#50E3C2',
+            weight: 2,
+            fillColor: '#50E3C2',
+            fillOpacity: 0.1,
+            dashArray: '5, 5'
+        }).addTo(leafletMap);
+    });
+
+    leafletMap.on('mousemove', (e) => {
+        if (!isSelecting || !selectionBox) return;
+        selectionBox.setBounds([startPoint, e.latlng]);
+    });
+
+    leafletMap.on('mouseup', (e) => {
+        if (!isSelecting) return;
+        isSelecting = false;
+        leafletMap.dragging.enable();
+
+        if (selectionBox) {
+            const bounds = selectionBox.getBounds();
+            const selectedUnits = [];
+
+            for (const socketId in units) {
+                const u = units[socketId];
+                if (u.lat && u.lng) {
+                    const unitLatLng = L.latLng(u.lat, u.lng);
+                    if (bounds.contains(unitLatLng)) {
+                        selectedUnits.push(socketId);
+                    }
+                }
+            }
+
+            if (selectedUnits.length > 0) {
+                const currentSelectionStr = selectedUnits.sort().join(',');
+                const now = Date.now();
+                if (window.lastTacticalSelection === currentSelectionStr && (now - (window.lastTacticalTime || 0)) < 10000) {
+                    console.log("Duplicate selection prevented.");
+                } else {
+                    window.lastTacticalSelection = currentSelectionStr;
+                    window.lastTacticalTime = now;
+
+                    const tacChannel = `TAC-ZONE-${Date.now().toString().slice(-4)}`;
+                    console.log(`Tactical Drag selected ${selectedUnits.length} units for ${tacChannel}`);
+
+                    socket.emit('create-tactical-zone', {
+                        channelName: tacChannel,
+                        unitSocketIds: selectedUnits
+                    });
+                }
+            }
+
+            setTimeout(() => {
+                if (selectionBox) selectionBox.remove();
+                selectionBox = null;
+            }, 1000);
+        }
+    });
 }
 
 
@@ -113,6 +189,17 @@ socket.on('register-unit', (data) => {
 socket.on('user-disconnected', (socketId) => {
     if (units[socketId]) {
         removeUnit(socketId);
+    }
+});
+
+socket.on('chaos-index-updated', ({ index, state }) => {
+    const chaosEl = document.getElementById('chaos-index-val');
+    if (chaosEl) {
+        chaosEl.innerText = `CHAOS: ${index}% (${state})`;
+        if (state === 'CRÍTICO') chaosEl.style.color = '#ff3b30';
+        else if (state === 'ALTO') chaosEl.style.color = '#ff9f0a';
+        else if (state === 'MEDIO') chaosEl.style.color = '#ffd60a';
+        else chaosEl.style.color = '#50E3C2';
     }
 });
 

@@ -1,5 +1,18 @@
-
-const socket = io();
+const getServerUrl = () => {
+    const hostname = window.location.hostname;
+    const port = window.location.port;
+    if (port === '3001' || port === '5173') {
+        return `http://${hostname}:3000`;
+    }
+    return window.location.origin;
+};
+const url = getServerUrl();
+console.log(`Connecting to Socket.IO at: ${url}`);
+const socket = io(url, {
+    reconnection: true,
+    reconnectionAttempts: 10,
+    timeout: 10000
+});
 
 // State
 let masterToken = '';
@@ -25,9 +38,26 @@ loginBtn.addEventListener('click', () => {
     const key = masterKeyInput.value.trim();
     if (!key) return;
 
-    console.log('Attempting Super Admin Login with key:', key);
     if (!socket.connected) {
-        alert('Error: No connection to server. Please check if server is running.');
+        loginError.innerText = "Connecting to server... Please wait.";
+        loginError.style.display = 'block';
+        loginError.style.color = "#ff9f0a";
+        
+        socket.connect();
+        
+        let attempts = 0;
+        const checkConn = setInterval(() => {
+            attempts++;
+            if (socket.connected) {
+                clearInterval(checkConn);
+                loginError.style.display = 'none';
+                socket.emit('login-super-admin', { key });
+            } else if (attempts > 20) {
+                clearInterval(checkConn);
+                loginError.innerText = "Error: Could not connect to server at " + url;
+                loginError.style.color = "#ff5e57";
+            }
+        }, 200);
         return;
     }
 
@@ -70,10 +100,33 @@ createOpBtn.addEventListener('click', () => {
     });
 });
 
-socket.on('tenant-created', ({ success, msg, opId }) => {
+socket.on('tenant-created', ({ success, msg, opId, token }) => {
     if (success) {
-        createMsg.innerText = `Operation '${opId}' Created Successfully!`;
-        createMsg.style.color = "#50E3C2";
+        const inviteUrl = `${window.location.origin}/?op=${opId}&token=${token}`;
+        
+        createMsg.innerHTML = `
+            <div style="background: rgba(80, 227, 194, 0.1); padding: 15px; border-radius: 8px; border: 1px solid #50E3C2; margin-top: 15px;">
+                <p style="color: #50E3C2; margin: 0 0 10px 0; font-weight: 600;">Operation '${opId}' Created!</p>
+                <p style="font-size: 12px; color: #aaa; margin-bottom: 8px;">Share this link with operators:</p>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" value="${inviteUrl}" readonly style="flex: 1; font-size: 11px; padding: 8px; background: #000; border: 1px solid #333;">
+                    <button id="copy-invite-btn" style="width: auto; padding: 0 15px; font-size: 12px; height: 34px;">COPY</button>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('copy-invite-btn').addEventListener('click', () => {
+            navigator.clipboard.writeText(inviteUrl).then(() => {
+                const btn = document.getElementById('copy-invite-btn');
+                btn.innerText = "COPIED!";
+                btn.style.background = "#fff";
+                setTimeout(() => {
+                    btn.innerText = "COPY";
+                    btn.style.background = "#50E3C2";
+                }, 2000);
+            });
+        });
+
         newOpIdInput.value = '';
         newOpPassInput.value = '';
         fetchOperations();
