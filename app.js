@@ -232,6 +232,7 @@ function updateChannelUI(channels) {
                     return;
                 }
                 if (newChannel && isPoweredOn) {
+                    if (audioContext && audioContext.state === 'suspended') audioContext.resume();
                     joinRoom(newChannel);
                     channelSheet.classList.remove('show');
                 } else if (!isPoweredOn) {
@@ -530,7 +531,11 @@ powerBtn.addEventListener('click', async () => {
                 video: false
             });
 
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            } else if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
             micSource = audioContext.createMediaStreamSource(rawStream);
             gainNode = audioContext.createGain();
             destNode = audioContext.createMediaStreamDestination();
@@ -704,19 +709,25 @@ function createPeerConnection(targetId) {
         remoteAudio.srcObject = event.streams[0];
         remoteAudio.autoplay = true;
         remoteAudio.playsInline = true;
-        remoteAudio.muted = false;
 
-        // Attach to DOM so we can visualize it (must be played to work with WebAudio)
-        // remoteAudio.play(); // Auto-play handles this but explicit encourages browser
-
-        const tempCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const source = tempCtx.createMediaElementSource(remoteAudio);
-        remoteAnalyser = tempCtx.createAnalyser();
-        remoteAnalyser.fftSize = 64;
-        remoteDataArray = new Uint8Array(remoteAnalyser.frequencyBinCount);
-
-        source.connect(remoteAnalyser);
-        remoteAnalyser.connect(tempCtx.destination);
+        // Visualizer for remote audio
+        if (audioContext) {
+            if (audioContext.state === 'suspended') audioContext.resume();
+            
+            try {
+                const source = audioContext.createMediaElementSource(remoteAudio);
+                remoteAnalyser = audioContext.createAnalyser();
+                remoteAnalyser.fftSize = 64;
+                remoteDataArray = new Uint8Array(remoteAnalyser.frequencyBinCount);
+                
+                source.connect(remoteAnalyser);
+                remoteAnalyser.connect(audioContext.destination);
+                console.log("Remote audio routed to visualizer and output.");
+            } catch (e) {
+                console.warn("Failed to route remote audio to main context, playing directly.", e);
+                remoteAudio.play();
+            }
+        }
     };
 
     pc.onicecandidate = (event) => {
