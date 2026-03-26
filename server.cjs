@@ -273,7 +273,13 @@ io.on('connection', (socket) => {
     });
 
     socket.on('join-channel', ({ opId, channelName }) => {
-        if (socket.OpId !== opId) return;
+        // Fallback: if socket.OpId isn't set yet but we have it in the request, use it
+        if (!socket.OpId && opId) socket.OpId = opId;
+        
+        if (socket.OpId !== opId) {
+            console.warn(`[JOIN] Request for ${opId} denied (Socket OpId: ${socket.OpId})`);
+            return;
+        }
 
         let targetChannel = channelName;
         // Redirect if fused
@@ -298,6 +304,7 @@ io.on('connection', (socket) => {
 
         const newRoomSize = io.sockets.adapter.rooms.get(newRoom)?.size || 0;
         io.to(newRoom).emit('channel-users-count', newRoomSize);
+        console.log(`[CHANNEL] User ${socket.id} joined ${newRoom} (Size: ${newRoomSize})`);
     });
 
     socket.on('leave-room', (channelName) => {
@@ -356,16 +363,22 @@ io.on('connection', (socket) => {
 
     // --- WebRTC ---
     socket.on('offer', (data) => {
-        console.log(`[WEBRTC] Offer from ${socket.id} to ${data.target}`);
-        io.to(data.target).emit('offer', { offer: data.offer, caller: socket.id });
+        if (data.target && data.offer) {
+            console.log(`[WEBRTC] Offer from ${socket.id} to ${data.target}`);
+            io.to(data.target).emit('offer', { offer: data.offer, caller: socket.id });
+        }
     });
     socket.on('answer', (data) => {
-        console.log(`[WEBRTC] Answer from ${socket.id} to ${data.target}`);
-        io.to(data.target).emit('answer', { answer: data.answer, caller: socket.id });
+        if (data.target && data.answer) {
+            console.log(`[WEBRTC] Answer from ${socket.id} to ${data.target}`);
+            io.to(data.target).emit('answer', { answer: data.answer, caller: socket.id });
+        }
     });
     socket.on('ice-candidate', (data) => {
-        // console.log(`[WEBRTC] ICE from ${socket.id} to ${data.target}`);
-        io.to(data.target).emit('ice-candidate', { candidate: data.candidate, caller: socket.id });
+        if (data.target && data.candidate) {
+            console.log(`[WEBRTC] ICE from ${socket.id} to ${data.target}`);
+            io.to(data.target).emit('ice-candidate', { candidate: data.candidate, caller: socket.id });
+        }
     });
 
     socket.on('disconnect', async () => {

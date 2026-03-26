@@ -298,22 +298,22 @@ function joinRoom(room) {
         delete peers[key];
     });
 
-    // Reconnect Socket
-    if (socket.connected) {
-        socket.disconnect();
+    // Push to server without disconnecting
+    if (socket.connected && currentOpId) {
+        socket.emit('join-channel', {
+            opId: currentOpId,
+            channelName: room
+        });
     }
-    socket.connect();
 
-    // After connect, socket.on('connect') will fire.
-    // We need to ensure we join the channel room there if roomId is set.
     updateChannelSelection(room);
 
-    // Reset flag after a short delay to allow socket reconnection
+    // Reset flag after a short delay
     setTimeout(() => {
         isSwitchingChannels = false;
         statusText.innerText = "ONLINE";
-        console.log(`Switched to channel ${room}`);
-    }, 1500);
+        updateDebug(`Channel: ${room}`);
+    }, 500);
 }
 
 // Update connect handler to join channel if roomId is set
@@ -322,6 +322,7 @@ const originalConnectHandler = socket.listeners('connect')[0];
 socket.off('connect'); // Remove old one to replace/wrap it
 
 socket.on('connect', () => {
+    updateDebug("Network Link: ESTABLISHED");
     console.log('Socket Connected!', socket.id);
 
     // Attempt Join Operation if params exist
@@ -331,15 +332,6 @@ socket.on('connect', () => {
             token: tokenParam,
             userId: localStorage.getItem('walkie_user_id') || generateUUID(),
             callSign: localStorage.getItem('walkie_callsign') || 'OPERATOR'
-        });
-    }
-
-    // Join Channel if set
-    if (roomId && currentOpId) {
-        console.log('Joining Channel Room:', roomId);
-        socket.emit('join-channel', {
-            opId: currentOpId,
-            channelName: roomId
         });
     }
 });
@@ -778,6 +770,8 @@ function createPeerConnection(targetId) {
 }
 
 function createOffer(targetId) {
+    console.log(`[WebRTC] Creating Offer for: ${targetId}`);
+    updateDebug(`Offer -> ${targetId}`);
     const pc = createPeerConnection(targetId);
     pc.createOffer()
         .then(offer => pc.setLocalDescription(offer))
@@ -786,10 +780,15 @@ function createOffer(targetId) {
                 target: targetId,
                 offer: pc.localDescription
             });
+        })
+        .catch(e => {
+            console.error("Offer Error:", e);
+            updateDebug("Offer Create Error");
         });
 }
 
 socket.on('ice-candidate', (data) => {
+    console.log(`[WebRTC] Received ICE Candidate from ${data.caller}`);
     const pc = peers[data.caller];
     if (pc) {
         pc.addIceCandidate(new RTCIceCandidate(data.candidate))
@@ -798,6 +797,7 @@ socket.on('ice-candidate', (data) => {
 });
 
 socket.on('offer', (data) => {
+    console.log(`[WebRTC] Received Offer from ${data.caller}`);
     updateDebug(`Offer from ${data.caller}`);
     const pc = createPeerConnection(data.caller);
     pc.setRemoteDescription(new RTCSessionDescription(data.offer))
