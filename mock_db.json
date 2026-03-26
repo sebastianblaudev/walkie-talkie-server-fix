@@ -1,0 +1,38 @@
+{
+  "operations": [
+    {
+      "id": "TEST-OP",
+      "admin_password": "testpass123"
+    }
+  ],
+  "channels": [
+    {
+      "op_id": "TEST-OP",
+      "name": "CHANNEL 1"
+    },
+    {
+      "op_id": "TEST-OP",
+      "name": "LOGISTICS"
+    },
+    {
+      "op_id": "TEST-OP",
+      "name": "SOS-TICKET-U-5258"
+    }
+  ],
+  "operation_tokens": [
+    {
+      "token": "gqob0ysm",
+      "op_id": "TEST-OP"
+    }
+  ],
+  "units": [
+    {
+      "id": "U-5258",
+      "op_id": "TEST-OP",
+      "callsign": "BRAVO-06",
+      "socket_id": "Z_BwYkP0Ss_OLVEYAAAD",
+      "status": "WAITING FOR GPS...",
+      "last_seen": "2026-03-25T20:47:01.150Z"
+    }
+  ]
+}

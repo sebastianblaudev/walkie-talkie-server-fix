@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: walkie-talkie-server-fix
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.cjs
+    envVars:
+      - key: PORT
+        sync: false
+      - key: SUPABASE_URL
+        value: "" # Leave empty to use Mock DB, or add new URL
+      - key: SUPABASE_SERVICE_KEY
+        value: "" # Leave empty to use Mock DB, or add new Key
