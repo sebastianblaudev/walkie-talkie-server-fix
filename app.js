@@ -101,6 +101,7 @@ let remoteCanvas, remoteCanvasCtx;
 
 // WebRTC
 const peers = {};
+const peerStates = {}; // Tracks { makingOffer: bool } per targetId
 const rtcConfig = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -141,8 +142,14 @@ socket.on('channel-users-count', (count) => {
 
 socket.on('room-users', (users) => {
     console.log("Existing users in room:", users);
-    users.forEach(userId => {
-        createOffer(userId);
+    users.forEach(targetId => {
+        // Only initiate if my ID is "smaller" to avoid Glare
+        if (socket.id < targetId) {
+            console.log(`[SIGNALLING] Initiating offer to existing user: ${targetId}`);
+            createOffer(targetId);
+        } else {
+            console.log(`[SIGNALLING] Waiting for offer from: ${targetId}`);
+        }
     });
 });
 
@@ -737,6 +744,12 @@ function drawBars(cvs, ctx, data, type) {
     }
 }
 
+// --- Perfect Negotiation Logic ---
+function isPolite(targetId) {
+    // Standard polite peer: alphabetical comparison of IDs
+    return socket.id < targetId;
+}
+
 function roundRect(ctx, x, y, width, height, radius) {
     if (width < 2 * radius) radius = width / 2;
     if (height < 2 * radius) radius = height / 2;
@@ -754,7 +767,11 @@ function roundRect(ctx, x, y, width, height, radius) {
 
 socket.on('user-connected', (userId) => {
     console.log('User connected:', userId);
-    createOffer(userId);
+    // Standard initiation: Only initiate if I'm the designated "caller" (ID comparison)
+    if (socket.id < userId) {
+        console.log(`[SIGNALLING] I am polite caller for ${userId}, initiating offer...`);
+        createOffer(userId);
+    }
 });
 
 function createPeerConnection(targetId) {
@@ -762,6 +779,7 @@ function createPeerConnection(targetId) {
 
     const pc = new RTCPeerConnection(rtcConfig);
     peers[targetId] = pc;
+    peerStates[targetId] = { makingOffer: false, ignoreOffer: false };
 
     if (localStream) {
         localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
@@ -821,6 +839,8 @@ function createOffer(targetId) {
     console.log(`[WebRTC] Creating Offer for: ${targetId}`);
     updateDebug(`Offer -> ${targetId}`);
     const pc = createPeerConnection(targetId);
+    
+    peerStates[targetId].makingOffer = true;
     pc.createOffer()
         .then(offer => pc.setLocalDescription(offer))
         .then(() => {
@@ -832,6 +852,9 @@ function createOffer(targetId) {
         .catch(e => {
             console.error("Offer Error:", e);
             updateDebug("Offer Create Error");
+        })
+        .finally(() => {
+            if (peerStates[targetId]) peerStates[targetId].makingOffer = false;
         });
 }
 
@@ -844,23 +867,47 @@ socket.on('ice-candidate', (data) => {
     }
 });
 
-socket.on('offer', (data) => {
+socket.on('offer', async (data) => {
     console.log(`[WebRTC] Received Offer from ${data.caller}`);
     updateDebug(`Offer from ${data.caller}`);
-    const pc = createPeerConnection(data.caller);
-    pc.setRemoteDescription(new RTCSessionDescription(data.offer))
-        .then(() => pc.createAnswer())
-        .then(answer => pc.setLocalDescription(answer))
-        .then(() => {
-            socket.emit('answer', { target: data.caller, answer: pc.localDescription });
-        })
-        .catch(e => updateDebug("Offer Error: " + e.message));
+    
+    const targetId = data.caller;
+    const pc = createPeerConnection(targetId);
+    const polite = isPolite(targetId);
+    
+    try {
+        const state = peerStates[targetId];
+        const offerCollision = (data.offer.type === "offer") &&
+                               (state.makingOffer || pc.signalingState !== "stable");
+
+        state.ignoreOffer = !polite && offerCollision;
+        if (state.ignoreOffer) {
+            console.warn(`[SIGNALLING] Glare detected! Ignoring offer from ${targetId} (Impolite)`);
+            return;
+        }
+
+        if (offerCollision) {
+            console.log(`[SIGNALLING] Glare detected! Rolling back local offer for ${targetId} (Polite)`);
+            await pc.setLocalDescription({ type: "rollback" });
+        }
+
+        await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+        
+        if (data.offer.type === "offer") {
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            socket.emit('answer', { target: targetId, answer: pc.localDescription });
+        }
+    } catch (e) {
+        console.error("Negotiation Error:", e);
+        updateDebug("Negotiation Fail");
+    }
 });
 
 socket.on('answer', (data) => {
     updateDebug(`Answer from ${data.caller}`);
     const pc = peers[data.caller];
-    if (pc) {
+    if (pc && pc.signalingState === 'have-local-offer') {
         pc.setRemoteDescription(new RTCSessionDescription(data.answer))
             .catch(e => updateDebug("Answer Error: " + e.message));
     }
