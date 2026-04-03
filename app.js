@@ -440,8 +440,8 @@ function forcePowerOff() {
     cancelAnimationFrame(animationId);
     canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Mute gain
-    if (gainNode) gainNode.gain.value = 0;
+    // Mute handles
+    if (localStream) localStream.getAudioTracks().forEach(t => t.enabled = false);
 
     stopGpsTracking();
 
@@ -466,6 +466,9 @@ const sosTimerDisplay = document.getElementById('sos-timer');
 const cancelSosBtn = document.getElementById('cancel-sos-btn');
 
 function triggerManDown() {
+    // Temporarily disabled to prevent alarm sound during testing
+    return;
+    
     if (!isPoweredOn || isSosActive) return;
     isSosActive = true;
     sosCountdown = 15;
@@ -573,16 +576,12 @@ powerBtn.addEventListener('click', async () => {
                 audioContext.resume();
             }
             micSource = audioContext.createMediaStreamSource(rawStream);
-            gainNode = audioContext.createGain();
-            destNode = audioContext.createMediaStreamDestination();
             analyser = audioContext.createAnalyser();
 
-            micSource.connect(gainNode);
-            gainNode.connect(destNode);
             micSource.connect(analyser);
 
-            gainNode.gain.value = 0;
-            localStream = destNode.stream;
+            localStream = rawStream;
+            localStream.getAudioTracks().forEach(t => t.enabled = false);
 
             // --- Track Injection into existing peers ---
             Object.keys(peers).forEach(targetId => {
@@ -631,7 +630,7 @@ powerBtn.addEventListener('click', async () => {
 // --- PTT Logic ---
 
 const startTx = () => {
-    if (!isPoweredOn || !roomId || !gainNode) return;
+    if (!isPoweredOn || !roomId) return;
     
     // Reset inactivity timer on PTT action
     lastMotionTime = Date.now();
@@ -651,15 +650,15 @@ const startTx = () => {
         const bars = signalStrength.querySelectorAll('.bar');
         bars.forEach(bar => bar.style.backgroundColor = 'var(--primary-color)');
     }
-    gainNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.01);
+    if (localStream) localStream.getAudioTracks().forEach(t => t.enabled = true);
 };
 
 const stopTx = () => {
-    if (!isPoweredOn || !roomId || !gainNode) return;
+    if (!isPoweredOn || !roomId) return;
     statusText.innerText = "STANDBY";
     talkBtn.classList.remove('talking');
     pttContainer.classList.remove('transmitting');
-    gainNode.gain.setTargetAtTime(0, audioContext.currentTime, 0.01);
+    if (localStream) localStream.getAudioTracks().forEach(t => t.enabled = false);
 };
 
 talkBtn.addEventListener('mousedown', startTx);
@@ -784,26 +783,23 @@ function createPeerConnection(targetId) {
         
         remoteAudio.srcObject = stream;
         remoteAudio.volume = 1.0;
+        remoteAudio.play().catch(e => console.error("Playback block: ", e));
 
         if (audioContext) {
             audioContext.resume().then(() => {
                 try {
-                    // We only connect once per session to avoid DOM errors
                     if (!remoteAudio.connectedToContext) {
-                        const source = audioContext.createMediaElementSource(remoteAudio);
+                        const source = audioContext.createMediaStreamSource(stream);
                         remoteAnalyser = audioContext.createAnalyser();
                         remoteAnalyser.fftSize = 64;
                         remoteDataArray = new Uint8Array(remoteAnalyser.frequencyBinCount);
                         
                         source.connect(remoteAnalyser);
-                        remoteAnalyser.connect(audioContext.destination);
                         remoteAudio.connectedToContext = true;
-                        updateDebug("Audio Bridged to Master");
+                        updateDebug("Audio Visualizer Attached natively");
                     }
-                    remoteAudio.play();
                 } catch (e) {
                     updateDebug("Bridge Error: " + e.message);
-                    remoteAudio.play();
                 }
             });
         }
