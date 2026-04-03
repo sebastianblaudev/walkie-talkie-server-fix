@@ -15,6 +15,7 @@ app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'admin.html'))
 app.get('/gps', (req, res) => res.sendFile(path.join(__dirname, 'gps.html')));
 app.get('/superadmin', (req, res) => res.sendFile(path.join(__dirname, 'superadmin.html')));
 app.get('/index', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().toISOString() }));
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -69,45 +70,54 @@ io.on('connection', (socket) => {
     });
 
     socket.on('list-tenants', async ({ key }) => {
-        if (key !== SUPER_ADMIN_KEY) return;
-        const { data, error } = await supabase.from('operations').select('id, admin_password');
-        if (!error) {
-            socket.emit('tenants-list', data.map(op => ({ opId: op.id, adminPass: op.admin_password })));
+        try {
+            if (key !== SUPER_ADMIN_KEY) return;
+            const { data, error } = await supabase.from('operations').select('id, admin_password');
+            if (!error) {
+                socket.emit('tenants-list', data.map(op => ({ opId: op.id, adminPass: op.admin_password })));
+            }
+        } catch (e) {
+            console.error("List Tenants Error:", e);
         }
     });
 
     socket.on('login-admin', async ({ opId, password }) => {
-        const { data: op, error } = await supabase.from('operations').select('*').eq('id', opId).single();
+        try {
+            const { data: op, error } = await supabase.from('operations').select('*').eq('id', opId).single();
 
-        if (op && op.admin_password === password) {
-            socket.join(`admin-${opId}`);
-            socket.AdminOpId = opId;
+            if (op && op.admin_password === password) {
+                socket.join(`admin-${opId}`);
+                socket.AdminOpId = opId;
 
-            // Fetch Channels
-            const { data: channels } = await supabase.from('channels').select('name').eq('op_id', opId);
-            const channelList = channels ? channels.map(c => c.name) : [];
+                // Fetch Channels
+                const { data: channels } = await supabase.from('channels').select('name').eq('op_id', opId);
+                const channelList = channels ? channels.map(c => c.name) : [];
 
-            // Fetch Active Units
-            const { data: units } = await supabase.from('units').select('*').eq('op_id', opId).neq('status', 'OFFLINE');
-            const activeUnits = {};
-            if (units) {
-                units.forEach(u => {
-                    activeUnits[u.socket_id] = {
-                        id: u.id,
-                        callSign: u.callsign, // Map to camelCase
-                        lat: u.lat,
-                        lng: u.lng,
-                        status: u.status,
-                        lastSeen: u.last_seen,
-                        socketId: u.socket_id
-                    };
-                });
+                // Fetch Active Units
+                const { data: units } = await supabase.from('units').select('*').eq('op_id', opId).neq('status', 'OFFLINE');
+                const activeUnits = {};
+                if (units) {
+                    units.forEach(u => {
+                        activeUnits[u.socket_id] = {
+                            id: u.id,
+                            callSign: u.callsign, // Map to camelCase
+                            lat: u.lat,
+                            lng: u.lng,
+                            status: u.status,
+                            lastSeen: u.last_seen,
+                            socketId: u.socket_id
+                        };
+                    });
+                }
+
+                socket.emit('admin-authenticated', { success: true, opId, channels: channelList });
+                socket.emit('active-units-list', activeUnits);
+            } else {
+                socket.emit('admin-auth-error', 'Invalid credentials');
             }
-
-            socket.emit('admin-authenticated', { success: true, opId, channels: channelList });
-            socket.emit('active-units-list', activeUnits);
-        } else {
-            socket.emit('admin-auth-error', 'Invalid credentials');
+        } catch (e) {
+            console.error("Admin Login Error:", e);
+            socket.emit('admin-auth-error', 'Server Error');
         }
     });
 
@@ -225,86 +235,107 @@ io.on('connection', (socket) => {
     // --- User Logic ---
 
     socket.on('join-operation', async ({ opId, token, userId, callSign }) => {
-        // Validation (Optional: Check token in operation_tokens)
-        const { data: op } = await supabase.from('operations').select('id').eq('id', opId).single();
-        if (!op) return socket.emit('join-error', 'Operation not found');
+        try {
+            // Validation (Optional: Check token in operation_tokens)
+            const { data: op } = await supabase.from('operations').select('id').eq('id', opId).single();
+            if (!op) return socket.emit('join-error', 'Operation not found');
 
-        socket.join(opId);
-        socket.OpId = opId;
-        socket.UserId = userId; // Track user ID
+            socket.join(opId);
+            socket.OpId = opId;
+            socket.UserId = userId; // Track user ID
 
-        // Get Channels
-        const { data: channels } = await supabase.from('channels').select('name').eq('op_id', opId);
+            // Get Channels
+            const { data: channels } = await supabase.from('channels').select('name').eq('op_id', opId);
 
-        let defaultChannel = 'BASE';
-        if (channels && channels.length > 0) {
-            const hasBase = channels.some(c => c.name === 'BASE');
-            if (!hasBase) defaultChannel = channels[0].name;
+            let defaultChannel = 'BASE';
+            if (channels && channels.length > 0) {
+                const hasBase = channels.some(c => c.name === 'BASE');
+                if (!hasBase) defaultChannel = channels[0].name;
+            }
+
+            socket.emit('operation-config', {
+                channels: channels.map(c => c.name),
+                opId,
+                defaultChannel
+            });
+
+            // Register Unit
+            const unitData = {
+                id: userId,
+                op_id: opId,
+                callsign: callSign,
+                socket_id: socket.id,
+                status: "WAITING FOR GPS...",
+                last_seen: new Date().toISOString()
+            };
+
+            await supabase.from('units').upsert(unitData);
+
+            // Notify Admin with camelCase
+            io.to(`admin-${opId}`).emit('register-unit', {
+                id: userId,
+                callSign: callSign,
+                socketId: socket.id,
+                status: "WAITING FOR GPS...",
+                lat: 0,
+                lng: 0,
+                lastSeen: unitData.last_seen
+            });
+        } catch (e) {
+            console.error("Join Operation Error:", e);
+            socket.emit('join-error', 'Server Error');
         }
-
-        socket.emit('operation-config', {
-            channels: channels.map(c => c.name),
-            opId,
-            defaultChannel
-        });
-
-        // Register Unit
-        const unitData = {
-            id: userId,
-            op_id: opId,
-            callsign: callSign,
-            socket_id: socket.id,
-            status: "WAITING FOR GPS...",
-            last_seen: new Date().toISOString()
-        };
-
-        await supabase.from('units').upsert(unitData);
-
-        // Notify Admin with camelCase
-        io.to(`admin-${opId}`).emit('register-unit', {
-            id: userId,
-            callSign: callSign,
-            socketId: socket.id,
-            status: "WAITING FOR GPS...",
-            lat: 0,
-            lng: 0,
-            lastSeen: unitData.last_seen
-        });
     });
 
     socket.on('join-channel', ({ opId, channelName }) => {
-        // Fallback: if socket.OpId isn't set yet but we have it in the request, use it
-        if (!socket.OpId && opId) socket.OpId = opId;
-        
-        if (socket.OpId !== opId) {
-            console.warn(`[JOIN] Request for ${opId} denied (Socket OpId: ${socket.OpId})`);
-            return;
+        try {
+            // Fallback: if socket.OpId isn't set yet but we have it in the request, use it
+            if (!socket.OpId && opId) socket.OpId = opId;
+            
+            if (socket.OpId !== opId) {
+                console.warn(`[JOIN] Request for ${opId} denied (Socket OpId: ${socket.OpId})`);
+                return;
+            }
+
+            let targetChannel = channelName;
+            // Redirect if fused
+            if (fusionMap[`${opId}-${channelName}`]) {
+                targetChannel = fusionMap[`${opId}-${channelName}`];
+                socket.emit('force-join-channel', targetChannel);
+                return;
+            }
+
+            // Leave previous channel
+            if (socket.CurrentChannel) {
+                const oldRoom = `${opId}-${socket.CurrentChannel}`;
+                socket.leave(oldRoom);
+                const oldRoomSize = io.sockets.adapter.rooms.get(oldRoom)?.size || 0;
+                io.to(oldRoom).emit('channel-users-count', oldRoomSize);
+            }
+
+            socket.CurrentChannel = channelName;
+            const newRoom = `${opId}-${channelName}`;
+            
+            // Get others *before* joining to avoid sending to self? 
+            // Actually, get the room's current members and exclude ourselves.
+            const existingSockets = io.sockets.adapter.rooms.get(newRoom);
+            const otherUsers = [];
+            if (existingSockets) {
+                existingSockets.forEach(sid => {
+                    if (sid !== socket.id) otherUsers.push(sid);
+                });
+            }
+            socket.emit('room-users', otherUsers);
+
+            socket.join(newRoom);
+            socket.to(newRoom).emit('user-connected', socket.id);
+
+            const newRoomSize = io.sockets.adapter.rooms.get(newRoom)?.size || 0;
+            io.to(newRoom).emit('channel-users-count', newRoomSize);
+            console.log(`[CHANNEL] User ${socket.id} joined ${newRoom} (Size: ${newRoomSize})`);
+        } catch (e) {
+            console.error("Join Channel Error:", e);
         }
-
-        let targetChannel = channelName;
-        // Redirect if fused
-        if (fusionMap[`${opId}-${channelName}`]) {
-            targetChannel = fusionMap[`${opId}-${channelName}`];
-            socket.emit('force-join-channel', targetChannel);
-            return;
-        }
-
-        // Leave previous channel
-        if (socket.CurrentChannel) {
-            const oldRoom = `${opId}-${socket.CurrentChannel}`;
-            socket.leave(oldRoom);
-            const oldRoomSize = io.sockets.adapter.rooms.get(oldRoom)?.size || 0;
-            io.to(oldRoom).emit('channel-users-count', oldRoomSize);
-        }
-
-        socket.CurrentChannel = channelName;
-        const newRoom = `${opId}-${channelName}`;
-        socket.join(newRoom);
-        socket.to(newRoom).emit('user-connected', socket.id);
-
-        const newRoomSize = io.sockets.adapter.rooms.get(newRoom)?.size || 0;
-        io.to(newRoom).emit('channel-users-count', newRoomSize);
-        console.log(`[CHANNEL] User ${socket.id} joined ${newRoom} (Size: ${newRoomSize})`);
     });
 
     socket.on('leave-room', (channelName) => {
@@ -322,22 +353,26 @@ io.on('connection', (socket) => {
     // --- GPS Logic ---
 
     socket.on('update-location', async (data) => {
-        const opId = socket.OpId;
-        if (!opId) return;
+        try {
+            const opId = socket.OpId;
+            if (!opId) return;
 
-        const updateData = {
-            lat: data.lat,
-            lng: data.lng, // Fix: data.lng (client sends lng)
-            status: "ACTIVE",
-            last_seen: new Date().toISOString(),
-            socket_id: socket.id
-        };
+            const updateData = {
+                lat: data.lat,
+                lng: data.lng, // Fix: data.lng (client sends lng)
+                status: "ACTIVE",
+                last_seen: new Date().toISOString(),
+                socket_id: socket.id
+            };
 
-        // Update DB
-        await supabase.from('units').update(updateData).eq('id', data.id);
+            // Update DB
+            await supabase.from('units').update(updateData).eq('id', data.id);
 
-        // Propagate to Admin
-        io.to(`admin-${opId}`).emit('update-location', { ...data, socketId: socket.id, status: "ACTIVE" });
+            // Propagate to Admin
+            io.to(`admin-${opId}`).emit('update-location', { ...data, socketId: socket.id, status: "ACTIVE" });
+        } catch (e) {
+            console.error("Update Location Error:", e);
+        }
     });
 
     socket.on('sos-alert', async ({ lat, lng }) => {
@@ -465,7 +500,11 @@ setInterval(() => {
     });
 }, 3000);
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+if (require.main === module) {
+    const PORT = process.env.PORT || 3000;
+    server.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
+}
+
+module.exports = { app, io, server };

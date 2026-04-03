@@ -1,38 +1,42 @@
 {
   "operations": [
     {
-      "id": "TEST-OP",
-      "admin_password": "testpass123"
+      "id": "test-op-1",
+      "admin_password": "pass"
     }
   ],
   "channels": [
     {
-      "op_id": "TEST-OP",
+      "op_id": "test-op-1",
       "name": "CHANNEL 1"
     },
     {
-      "op_id": "TEST-OP",
+      "op_id": "test-op-1",
       "name": "LOGISTICS"
-    },
-    {
-      "op_id": "TEST-OP",
-      "name": "SOS-TICKET-U-5258"
     }
   ],
   "operation_tokens": [
     {
-      "token": "gqob0ysm",
-      "op_id": "TEST-OP"
+      "token": "gus7yb5w",
+      "op_id": "test-op-1"
     }
   ],
   "units": [
     {
-      "id": "U-5258",
-      "op_id": "TEST-OP",
-      "callsign": "BRAVO-06",
-      "socket_id": "Z_BwYkP0Ss_OLVEYAAAD",
-      "status": "WAITING FOR GPS...",
-      "last_seen": "2026-03-25T20:47:01.150Z"
+      "id": "u1",
+      "op_id": "test-op-1",
+      "callsign": "SIG-1",
+      "socket_id": null,
+      "status": "OFFLINE",
+      "last_seen": "2026-04-03T16:52:49.952Z"
+    },
+    {
+      "id": "u2",
+      "op_id": "test-op-1",
+      "callsign": "C2",
+      "socket_id": null,
+      "status": "OFFLINE",
+      "last_seen": "2026-04-03T16:52:49.930Z"
     }
   ]
 }

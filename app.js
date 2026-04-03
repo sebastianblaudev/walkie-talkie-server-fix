@@ -20,7 +20,13 @@ const getServerUrl = () => {
 
 const serverUrl = getServerUrl();
 console.log("Attempting to connect to:", serverUrl);
-let socket = io(serverUrl);
+let socket = io(serverUrl, {
+    reconnection: true,
+    reconnectionRequests: Infinity,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 20000
+});
 
 // --- Operation Logic ---
 let currentOpId = null;
@@ -129,8 +135,15 @@ const opCountDisplay = document.getElementById('operator-count-display');
 
 socket.on('channel-users-count', (count) => {
     if (opCountDisplay) {
-        opCountDisplay.innerText = `${count} OPERATOR${count !== 1 ? 'S' : ''} ONLINE`;
+        opCountDisplay.innerText = `${count} OPERATOR${count !== 0 ? 'S' : ''} ONLINE`;
     }
+});
+
+socket.on('room-users', (users) => {
+    console.log("Existing users in room:", users);
+    users.forEach(userId => {
+        createOffer(userId);
+    });
 });
 
 // Socket Connect Handler moved below joinRoom for better scoping
@@ -205,12 +218,30 @@ socket.on('join-error', (msg) => {
 
 socket.on('connect_error', (err) => {
     console.error('Socket Connection Error:', err);
-    statusText.innerText = "OFFLINE";
+    statusText.innerText = "LINK LOST";
+    statusText.classList.add('error-blink');
+    updateDebug("Link Error: " + err.message);
+});
+
+socket.on('reconnect_attempt', (attempt) => {
+    statusText.innerText = `RETRYING ${attempt}...`;
+    updateDebug(`Reconnecting... (Attempt ${attempt})`);
+});
+
+socket.on('reconnect', (attempt) => {
+    statusText.innerText = "ONLINE";
+    statusText.classList.remove('error-blink');
+    updateDebug("Link Restored.");
 });
 
 socket.on('disconnect', (reason) => {
     console.warn('Socket Disconnected:', reason);
-    statusText.innerText = "OFFLINE";
+    if (reason === "io server disconnect") {
+        // the disconnection was initiated by the server, you need to reconnect manually
+        socket.connect();
+    }
+    statusText.innerText = "DISCONNECTED";
+    updateDebug("Link Down: " + reason);
 });
 
 // --- Channel Logic ---
@@ -553,6 +584,23 @@ powerBtn.addEventListener('click', async () => {
             gainNode.gain.value = 0;
             localStream = destNode.stream;
 
+            // --- Track Injection into existing peers ---
+            Object.keys(peers).forEach(targetId => {
+                const pc = peers[targetId];
+                if (pc && pc.signalingState !== 'closed') {
+                    localStream.getTracks().forEach(track => {
+                        // Avoid adding twice
+                        const senders = pc.getSenders();
+                        const exists = senders.some(s => s.track && s.track.kind === track.kind);
+                        if (!exists) {
+                            pc.addTrack(track, localStream);
+                        }
+                    });
+                    // Renegotiate
+                    createOffer(targetId);
+                }
+            });
+
             analyser.fftSize = 64;
             const bufferLength = analyser.frequencyBinCount;
             dataArray = new Uint8Array(bufferLength);
@@ -585,6 +633,10 @@ powerBtn.addEventListener('click', async () => {
 const startTx = () => {
     if (!isPoweredOn || !roomId || !gainNode) return;
     
+    // Reset inactivity timer on PTT action
+    lastMotionTime = Date.now();
+    updateDebug("PTT Active - Timer Reset");
+
     // Resume context on EVERY talk click to be 100% sure
     if (audioContext && audioContext.state === 'suspended') audioContext.resume();
 
