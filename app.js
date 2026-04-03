@@ -646,8 +646,8 @@ const startTx = () => {
     // Resume context on EVERY talk click to be 100% sure
     if (audioContext && audioContext.state === 'suspended') audioContext.resume();
 
-    // Play a tiny tactical beep to confirm mic is live
-    playTacticalAlert();
+    // Tactical beep removed by user request
+    // playTacticalAlert();
 
     statusText.innerText = "TRANSMITTING";
     updateDebug("TX Active");
