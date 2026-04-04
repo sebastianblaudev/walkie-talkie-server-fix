@@ -85,6 +85,42 @@ let localStream;
 let roomId;
 let isPoweredOn = false;
 let isSwitchingChannels = false;
+let wakeLock = null;
+
+// --- Wake Lock Logic ---
+async function requestWakeLock() {
+    if (!('wakeLock' in navigator)) {
+        updateDebug("WakeLock: NOT SUPPORTED");
+        return;
+    }
+    try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        updateDebug("WakeLock: ACTIVE");
+        
+        wakeLock.addEventListener('release', () => {
+            console.log('Wake Lock was released');
+        });
+    } catch (err) {
+        updateDebug(`WakeLock Error: ${err.message}`);
+    }
+}
+
+function releaseWakeLock() {
+    if (wakeLock !== null) {
+        wakeLock.release()
+            .then(() => {
+                wakeLock = null;
+                updateDebug("WakeLock: RELEASED");
+            });
+    }
+}
+
+// Re-acquire wake lock when page becomes visible again
+document.addEventListener('visibilitychange', async () => {
+    if (wakeLock !== null && document.visibilityState === 'visible' && isPoweredOn) {
+        await requestWakeLock();
+    }
+});
 
 // Audio Context & Nodes
 let audioContext;
@@ -159,6 +195,8 @@ socket.on('operation-config', (config) => {
     console.log("Joined Operation:", config.opId);
     currentOpId = config.opId;
     statusText.innerText = `OP: ${config.opId.toUpperCase()}`;
+    // Store descriptions for later use if needed
+    window.operationChannels = config.fullChannels || [];
     updateChannelUI(config.channels);
 
     // Auto-join default channel if not already in one
@@ -192,25 +230,65 @@ function playTacticalAlert() {
     }
 }
 
-socket.on('force-join-channel', (channelName) => {
-    console.log(`Command received: Force join ${channelName}`);
-    if (isPoweredOn && roomId !== channelName) {
-        joinRoom(channelName);
+function playVoiceAlert(text) {
+    if (!('speechSynthesis' in window)) return;
+    
+    // Stop any current speaking
+    window.speechSynthesis.cancel();
+    
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'es-ES'; // Spanish
+    utterance.rate = 0.9;     // Slightly slower for clarity
+    utterance.pitch = 1.0;
+    
+    window.speechSynthesis.speak(utterance);
+}
 
+socket.on('force-join-channel', (data) => {
+    // Check if data is string or object for backward compatibility
+    const channelName = typeof data === 'string' ? data : data.channelName;
+    const description = typeof data === 'object' ? (data.description || "No description") : "No description provided.";
+    const isFinished = typeof data === 'object' ? data.finished : false;
+
+    console.log(`Command received: Force join ${channelName}`, description);
+    
+    if (isPoweredOn) {
+        joinRoom(channelName);
         playTacticalAlert();
 
         const overlay = document.getElementById('override-overlay');
         const msg = document.getElementById('override-message');
         if (overlay && msg) {
-            msg.innerText = `REROUTING TO ${channelName}...`;
+            if (isFinished) {
+                msg.innerText = "PROTOCOLO FINALIZADO: VOLVIENDO A BASE";
+                playVoiceAlert("Protocolo finalizado. Volviendo a canal base.");
+            } else {
+                const isIncident = channelName.startsWith('INCIDENT-') || channelName.startsWith('TAC-ZONE-');
+                
+                if (isIncident) {
+                    msg.innerHTML = `
+                        <div style="font-size: 24px; font-weight: 800; color: #ff3b30; margin-bottom: 10px;">
+                            PROTOCOL: ${channelName.replace('INCIDENT-', '')}
+                        </div>
+                        <div style="font-size: 14px; color: #fff; line-height: 1.4; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 10px;">
+                            ${description}
+                        </div>
+                    `;
+                    playVoiceAlert(`Asignado a protocolo ${channelName.replace('INCIDENT-', '')}. Revise su equipo.`);
+                } else {
+                    msg.innerText = `CAMBIANDO A ${channelName}...`;
+                }
+            }
+
             overlay.classList.remove('hidden');
             overlay.classList.add('show');
 
-            // Hide after 3 seconds
+            // Hide after longer period for incidents (8s) or default (3s)
+            const delay = isIncident ? 8000 : 3000;
             setTimeout(() => {
                 overlay.classList.remove('show');
-                setTimeout(() => overlay.classList.add('hidden'), 300); // Wait for fade out
-            }, 3000);
+                setTimeout(() => overlay.classList.add('hidden'), 300);
+            }, delay);
         }
 
         statusText.innerText = "OVERRIDE...";
@@ -293,6 +371,11 @@ function updateChannelUI(channels) {
             });
             list.appendChild(div);
         });
+
+        // Restore active state if we are currently in a room
+        if (roomId) {
+            updateChannelSelection(roomId);
+        }
     }
 }
 
@@ -451,6 +534,7 @@ function forcePowerOff() {
     if (localStream) localStream.getAudioTracks().forEach(t => t.enabled = false);
 
     stopGpsTracking();
+    releaseWakeLock();
 
     if (roomId) {
         socket.emit('leave-room', roomId);
@@ -566,6 +650,7 @@ powerBtn.addEventListener('click', async () => {
         statusText.innerText = "INITIALIZING...";
         if (!socket.connected) socket.connect();
         startGpsTracking();
+        await requestWakeLock();
 
         try {
             const rawStream = await navigator.mediaDevices.getUserMedia({

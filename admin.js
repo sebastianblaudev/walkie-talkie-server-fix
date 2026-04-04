@@ -131,6 +131,16 @@ window.removeChannel = (channelName) => {
 };
 
 socket.on('channels-updated', (channels) => {
+    // Sync incident markers: remove those that represent channels no longer present
+    for (const incId in incidents) {
+        if (!channels.includes(incId)) {
+            const inc = incidents[incId];
+            if (inc.marker) inc.marker.remove();
+            if (inc.circle) inc.circle.remove();
+            delete incidents[incId];
+            console.log(`[SYNC] Cleared map marker for removed channel: ${incId}`);
+        }
+    }
     renderChannels(channels);
 });
 
@@ -173,7 +183,21 @@ function initMap() {
     // --- Incident Creation ---
     map.on('contextmenu', (e) => {
         if (!currentOpId) return;
-        const incidentId = `INCIDENT-${Date.now().toString().slice(-6)}`;
+        
+        const nameInput = document.getElementById('incident-name');
+        const descInput = document.getElementById('incident-desc');
+        
+        const manualName = nameInput.value.trim().toUpperCase();
+        const manualDesc = descInput.value.trim();
+
+        const incidentId = manualName ? `INCIDENT-${manualName}` : `INCIDENT-${Date.now().toString().slice(-6)}`;
+        const description = manualDesc || "Operative Protocol: Emergency Response - Check equipment.";
+        
+        // Reset inputs and mode
+        const modeBtn = document.getElementById('set-incident-mode');
+        if (modeBtn) modeBtn.classList.remove('incident-mode-active');
+        nameInput.value = '';
+        descInput.value = '';
 
         const incidentIcon = L.divIcon({
             className: 'custom-div-icon',
@@ -200,8 +224,19 @@ function initMap() {
 
         incidents[incidentId] = { id: incidentId, marker, circle, latlng: e.latlng };
 
-        socket.emit('add-channel', { channelName: incidentId });
+        socket.emit('add-channel', { 
+            channelName: incidentId,
+            description: description 
+        });
     });
+
+    // Handle Plot Mode UI
+    const modeBtn = document.getElementById('set-incident-mode');
+    if (modeBtn) {
+        modeBtn.addEventListener('click', () => {
+            modeBtn.classList.toggle('incident-mode-active');
+        });
+    }
 
     // --- Tactical Drag (Shift + Click Drag) ---
     let isSelecting = false;

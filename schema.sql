@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS channels (
     id BIGSERIAL PRIMARY KEY,
     op_id TEXT REFERENCES operations(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
+    description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     UNIQUE(op_id, name)
 );
