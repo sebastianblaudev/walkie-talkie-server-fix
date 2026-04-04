@@ -7,7 +7,11 @@ const getServerUrl = () => {
     }
     return window.location.origin;
 };
-const socket = io(getServerUrl());
+const socket = io(getServerUrl(), {
+    transports: ['websocket'],
+    reconnection: true,
+    timeout: 10000
+});
 
 // State
 let currentOpId = '';

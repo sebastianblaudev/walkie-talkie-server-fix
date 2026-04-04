@@ -22,7 +22,8 @@ const server = http.createServer(app);
 const io = new Server(server, {
     cors: { origin: "*", methods: ["GET", "POST"] },
     pingInterval: 10000,
-    pingTimeout: 20000
+    pingTimeout: 20000,
+    transports: ['websocket']
 });
 
 // --- Render Auto-Pinger (Hack to prevent spin-down) ---
@@ -67,7 +68,7 @@ io.on('connection', (socket) => {
         const { error: opError } = await supabase.from('operations').insert([{ id: opId, admin_password: password }]);
         if (opError) {
             console.error("Create Op Error:", opError);
-            return socket.emit('tenant-created', { success: false, msg: "Database Error" });
+            return socket.emit('tenant-created', { success: false, msg: "DB Error: " + opError.message });
         }
 
         // Create Default Channels
