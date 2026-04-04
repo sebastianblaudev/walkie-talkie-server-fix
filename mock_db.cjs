@@ -30,11 +30,11 @@ const mockSupabase = {
                 return {
                     eq: (col, val) => {
                         filters.push({ type: 'eq', col, val });
-                        return this.select(query); // Return the same object for chaining
+                        return this; // Return the same object for chaining
                     },
                     neq: (col, val) => {
                         filters.push({ type: 'neq', col, val });
-                        return this.select(query);
+                        return this;
                     },
                     single: async () => {
                         const db = readDB();

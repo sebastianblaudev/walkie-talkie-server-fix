@@ -17,6 +17,7 @@
     "@capacitor/core": "^5.0.0",
     "@supabase/supabase-js": "^2.95.3",
     "cors": "^2.8.6",
+    "dotenv": "^17.4.0",
     "express": "^5.2.1",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.7.2"
