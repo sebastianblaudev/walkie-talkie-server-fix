@@ -219,17 +219,23 @@ io.on('connection', (socket) => {
     });
 
     async function notifyChannelsUpdated(opId) {
-        const { data: channels } = await supabase.from('channels').select('name').eq('op_id', opId);
-        const list = channels.map(c => c.name);
+        try {
+            const { data: channels, error } = await supabase.from('channels').select('name').eq('op_id', opId);
+            if (error) throw error;
+            
+            const list = channels ? channels.map(c => c.name) : [];
 
-        let defaultChannel = 'BASE';
-        if (channels && channels.length > 0) {
-            const hasBase = channels.some(c => c.name === 'BASE');
-            if (!hasBase) defaultChannel = channels[0].name;
+            let defaultChannel = 'BASE';
+            if (channels && channels.length > 0) {
+                const hasBase = channels.some(c => c.name === 'BASE');
+                if (!hasBase) defaultChannel = channels[0].name;
+            }
+
+            io.to(`admin-${opId}`).emit('channels-updated', list);
+            io.to(opId).emit('operation-config', { channels: list, opId, defaultChannel });
+        } catch (e) {
+            console.error("Notify Channels Update Error:", e);
         }
-
-        io.to(`admin-${opId}`).emit('channels-updated', list);
-        io.to(opId).emit('operation-config', { channels: list, opId, defaultChannel });
     }
 
     // --- User Logic ---
@@ -417,21 +423,25 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', async () => {
-        const opId = socket.OpId;
-        if (opId) {
-            if (socket.CurrentChannel) {
-                const roomName = `${opId}-${socket.CurrentChannel}`;
-                const roomSize = io.sockets.adapter.rooms.get(roomName)?.size || 0;
-                io.to(roomName).emit('channel-users-count', roomSize);
-            }
+        try {
+            const opId = socket.OpId;
+            if (opId) {
+                if (socket.CurrentChannel) {
+                    const roomName = `${opId}-${socket.CurrentChannel}`;
+                    const roomSize = io.sockets.adapter.rooms.get(roomName)?.size || 0;
+                    io.to(roomName).emit('channel-users-count', roomSize);
+                }
 
-            // Mark as Offline
-            if (socket.UserId) {
-                await supabase.from('units').update({ status: 'OFFLINE', socket_id: null }).eq('id', socket.UserId);
+                // Mark as Offline
+                if (socket.UserId) {
+                    await supabase.from('units').update({ status: 'OFFLINE', socket_id: null }).eq('id', socket.UserId);
+                }
+                io.to(`admin-${opId}`).emit('user-disconnected', socket.id);
             }
-            io.to(`admin-${opId}`).emit('user-disconnected', socket.id);
+            console.log('User disconnected:', socket.id);
+        } catch (e) {
+            console.error("Disconnect Error:", e);
         }
-        console.log('User disconnected:', socket.id);
     });
 });
 
@@ -506,5 +516,14 @@ if (require.main === module) {
         console.log(`Server running on port ${PORT}`);
     });
 }
+
+// --- Global Error Handlers to Prevent Server Crashes ---
+process.on('uncaughtException', (err) => {
+    console.error('CRITICAL: Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 module.exports = { app, io, server };
