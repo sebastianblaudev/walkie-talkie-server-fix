@@ -163,7 +163,9 @@ socket.on('chaos-index-updated', ({ index, state }) => {
 // --- Map & GPS Logic ---
 
 function initMap() {
-    map = L.map('admin-map').setView([0, 0], 2);
+    map = L.map('admin-map', {
+        doubleClickZoom: false
+    }).setView([0, 0], 2);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
         subdomains: 'abcd',
@@ -171,7 +173,7 @@ function initMap() {
     }).addTo(map);
 
     // --- Incident Creation ---
-    map.on('contextmenu', (e) => {
+    const createIncidentAtStr = (e) => {
         if (!currentOpId) return;
         const incidentId = `INCIDENT-${Date.now().toString().slice(-6)}`;
 
@@ -201,7 +203,11 @@ function initMap() {
         incidents[incidentId] = { id: incidentId, marker, circle, latlng: e.latlng };
 
         socket.emit('add-channel', { channelName: incidentId });
-    });
+    };
+
+    map.on('contextmenu', createIncidentAtStr);
+    map.on('dblclick', createIncidentAtStr);
+
 
     // --- Tactical Drag (Shift + Click Drag) ---
     let isSelecting = false;
