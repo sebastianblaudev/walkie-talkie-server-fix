@@ -266,6 +266,35 @@
             flex-shrink: 0;
         }
 
+        /* Channel Item Styles */
+        .channel-item {
+            background: #1a1a1c;
+            border-radius: 8px;
+            padding: 10px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid rgba(255, 255, 255, 0.02);
+            font-size: 13px;
+            font-weight: 600;
+            color: #ccc;
+        }
+        
+        .btn-icon {
+            background: rgba(255,59,48,0.1);
+            color: #ff3b30;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            padding: 4px;
+            font-size: 16px;
+            display: flex;
+            transition: 0.2s;
+        }
+        .btn-icon:hover {
+            background: rgba(255,59,48,0.3);
+        }
+
         .unit-item .u-dot.status-active {
             background: #50E3C2;
             box-shadow: 0 0 12px rgba(80, 227, 194, 0.6);
@@ -394,8 +423,20 @@
             </div>
         </div>
 
-        <!-- Right Panel (Units List) -->
+        <!-- Right Panel (Channels & Units List) -->
         <div class="right-panel">
+            <!-- Channels Section -->
+            <div style="font-size:11px; font-weight:700; color:#888; letter-spacing:2px; margin-bottom: 8px;">OPERATION CHANNELS</div>
+            <div id="channel-list" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; max-height: 250px; overflow-y: auto;">
+                <!-- Channel items injected here -->
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 24px;">
+                <input type="text" id="new-channel-name" class="login-input" style="margin-bottom: 0; padding: 10px; font-size: 12px;" placeholder="CHANNEL NAME...">
+                <button id="add-channel-btn" class="btn-primary" style="width: auto; padding: 10px 16px; font-size: 12px;">ADD</button>
+            </div>
+
+            <!-- Units Section -->
+            <div style="font-size:11px; font-weight:700; color:#888; letter-spacing:2px; margin-bottom: 8px;">ACTIVE UNITS</div>
             <div class="units-list" id="units-list">
                 <!-- Unit cards injected here -->
                 <div
@@ -406,9 +447,6 @@
 
             <!-- Hidden inputs/data for logic compatibility -->
             <div id="display-op-id" style="display:none;"></div>
-            <div id="channel-list" style="display:none;"></div>
-            <input type="hidden" id="new-channel-name">
-            <button id="add-channel-btn" style="display:none;"></button>
         </div>
 
     </div>
