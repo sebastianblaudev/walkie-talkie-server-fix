@@ -11,8 +11,7 @@ console.log(`Connecting to Socket.IO at: ${url}`);
 const socket = io(url, {
     reconnection: true,
     reconnectionAttempts: 10,
-    timeout: 10000,
-    transports: ['websocket']
+    timeout: 10000
 });
 
 // State

@@ -334,55 +334,6 @@
             font-family: 'Inter', sans-serif !important;
             background: transparent !important;
         }
-
-        /* Sidebar Sections */
-        .sidebar-section {
-            background: #111113;
-            border-radius: 16px;
-            border: 1px solid #1a1a1c;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .section-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: #50E3C2;
-            margin-bottom: 4px;
-        }
-
-        .section-header h3 {
-            font-size: 11px;
-            letter-spacing: 1.5px;
-            margin: 0;
-            text-transform: uppercase;
-        }
-
-        .incident-form input, .incident-form textarea {
-            width: 100%;
-            background: #0d0d0f;
-            border: 1px solid #333;
-            color: #fff;
-            padding: 10px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-family: 'Inter', sans-serif;
-            margin-bottom: 10px;
-            box-sizing: border-box;
-        }
-
-        .incident-form textarea {
-            height: 80px;
-            resize: none;
-        }
-
-        .incident-mode-active {
-            background: #ff3b30 !important;
-            box-shadow: 0 0 15px rgba(255, 59, 48, 0.4);
-        }
     </style>
 </head>
 
@@ -445,22 +396,6 @@
 
         <!-- Right Panel (Units List) -->
         <div class="right-panel">
-            <div class="sidebar-section">
-                <div class="section-header">
-                    <span class="material-icons-round">emergency</span>
-                    <h3>NEW INCIDENT</h3>
-                </div>
-                <div class="incident-form">
-                    <input type="text" id="incident-name" placeholder="E.g. RADIUS-ALPHA">
-                    <textarea id="incident-desc" placeholder="Protocol instructions..."></textarea>
-                    <button class="btn-primary" id="set-incident-mode">
-                        <span class="material-icons-round">add_location</span>
-                        READY TO PLOT
-                    </button>
-                    <p style="font-size: 9px; color: #555; text-align: center; margin-top: 5px;">*Once ready, right-click on map to deploy.</p>
-                </div>
-            </div>
-
             <div class="units-list" id="units-list">
                 <!-- Unit cards injected here -->
                 <div

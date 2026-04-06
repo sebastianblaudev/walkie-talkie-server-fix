@@ -1,4 +1,3 @@
-require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const mockSupabase = require('./mock_db.cjs');
 
@@ -7,20 +6,15 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 let client;
 
-if (SUPABASE_URL && SUPABASE_SERVICE_KEY) {
-    console.log("-----------------------------------------");
-    console.log("[DB] SUCCESS: Initializing Supabase...");
-    console.log(`[DB] Target URL: ${SUPABASE_URL}`);
-    console.log("-----------------------------------------");
+// Check if we have valid-looking Supabase credentials that aren't the broken default
+const isBrokenURL = SUPABASE_URL === 'https://vzzjkoviyodurlzsiiup.supabase.co';
+
+if (SUPABASE_URL && SUPABASE_SERVICE_KEY && !isBrokenURL) {
+    console.log("[DB] Initializing Supabase Client...");
     client = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 } else {
-    console.log("-----------------------------------------");
-    console.log("[DB] WARNING: Missing Supabase Credentials.");
-    console.log("[DB] Using Local Mock Database (mock_db.json)");
-    console.log("[DB] To fix: Add SUPABASE_URL and SUPABASE_SERVICE_KEY to .env");
-    console.log("-----------------------------------------");
+    console.log("[DB] Using Local Mock Database...");
     client = mockSupabase;
 }
 
 module.exports = client;
-

@@ -3,10 +3,6 @@
     {
       "id": "test-op-1",
       "admin_password": "pass"
-    },
-    {
-      "id": "test-persist-1",
-      "admin_password": "asdf"
     }
   ],
   "channels": [
@@ -17,24 +13,12 @@
     {
       "op_id": "test-op-1",
       "name": "LOGISTICS"
-    },
-    {
-      "op_id": "test-persist-1",
-      "name": "CHANNEL 1"
-    },
-    {
-      "op_id": "test-persist-1",
-      "name": "LOGISTICS"
     }
   ],
   "operation_tokens": [
     {
-      "token": "gus7yb5w",
+      "token": "en0wb07g",
       "op_id": "test-op-1"
-    },
-    {
-      "token": "qcvi012h",
-      "op_id": "test-persist-1"
     }
   ],
   "units": [
@@ -44,7 +28,7 @@
       "callsign": "SIG-1",
       "socket_id": null,
       "status": "OFFLINE",
-      "last_seen": "2026-04-03T16:52:49.952Z"
+      "last_seen": "2026-04-06T02:41:12.470Z"
     },
     {
       "id": "u2",
@@ -52,17 +36,7 @@
       "callsign": "C2",
       "socket_id": null,
       "status": "OFFLINE",
-      "last_seen": "2026-04-03T16:52:49.930Z"
-    },
-    {
-      "id": "U-5258",
-      "op_id": "test-op-1",
-      "callsign": "BRAVO-06",
-      "socket_id": "HOAY66Y3XAmN6iq_AAAz",
-      "status": "ACTIVE",
-      "last_seen": "2026-04-03T19:57:52.897Z",
-      "lat": -33.47583610228477,
-      "lng": -70.5994799366981
+      "last_seen": "2026-04-06T02:41:12.438Z"
     }
   ]
 }

@@ -1,4 +1,3 @@
-require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
@@ -20,24 +19,8 @@ app.get('/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().
 
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: { origin: "*", methods: ["GET", "POST"] },
-    pingInterval: 10000,
-    pingTimeout: 20000,
-    transports: ['websocket']
+    cors: { origin: "*", methods: ["GET", "POST"] }
 });
-
-// --- Render Auto-Pinger (Hack to prevent spin-down) ---
-const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
-if (RENDER_URL) {
-    setInterval(() => {
-        http.get(RENDER_URL + '/health', (res) => {
-            console.log(`[PINGER] Keep-alive ping sent to ${RENDER_URL}. Status: ${res.statusCode}`);
-        }).on('error', (err) => {
-            console.error('[PINGER] Keep-alive failed:', err.message);
-        });
-    }, 600000); // 10 minutes (Render spins down at 15 mins)
-    console.log(`[PINGER] Auto-pinger active for: ${RENDER_URL}`);
-}
 
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
@@ -68,7 +51,7 @@ io.on('connection', (socket) => {
         const { error: opError } = await supabase.from('operations').insert([{ id: opId, admin_password: password }]);
         if (opError) {
             console.error("Create Op Error:", opError);
-            return socket.emit('tenant-created', { success: false, msg: "DB Error: " + opError.message });
+            return socket.emit('tenant-created', { success: false, msg: "Database Error" });
         }
 
         // Create Default Channels
@@ -173,29 +156,25 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('add-channel', async ({ channelName, description }) => {
+    socket.on('add-channel', async ({ channelName }) => {
         const opId = socket.AdminOpId;
         if (!opId) return;
 
-        const { error } = await supabase.from('channels').insert([{ op_id: opId, name: channelName, description: description || "" }]);
+        const { error } = await supabase.from('channels').insert([{ op_id: opId, name: channelName }]);
         if (!error) {
             notifyChannelsUpdated(opId);
         }
     });
 
-    socket.on('assign-to-incident', async ({ incidentId, unitSocketId }) => {
+    socket.on('assign-to-incident', ({ incidentId, unitSocketId }) => {
         const opId = socket.AdminOpId;
         if (!opId) return;
 
-        // Fetch channel info first to get description
-        const { data: channel } = await supabase.from('channels').select('*').match({ op_id: opId, name: incidentId }).single();
-        const description = channel ? channel.description : "";
+        // Force the assigned unit to join the incident channel
+        io.to(unitSocketId).emit('force-join-channel', incidentId);
 
-        // Force the assigned unit to join the incident channel with metadata
-        io.to(unitSocketId).emit('force-join-channel', { channelName: incidentId, description });
-
-        // Also force the admin to join
-        socket.emit('force-join-channel', { channelName: incidentId, description });
+        // Also force the admin to join the incident channel so they can talk
+        socket.emit('force-join-channel', incidentId);
     });
 
     socket.on('create-tactical-zone', async ({ channelName, unitSocketIds }) => {
@@ -233,10 +212,6 @@ io.on('connection', (socket) => {
         const opId = socket.AdminOpId;
         if (!opId) return;
 
-        // Notify people in that room to return to BASE before deleting
-        const roomName = `${opId}-${channelName}`;
-        io.to(roomName).emit('force-join-channel', { channelName: 'BASE', finished: true });
-
         const { error } = await supabase.from('channels').delete().match({ op_id: opId, name: channelName });
         if (!error) {
             notifyChannelsUpdated(opId);
@@ -244,31 +219,17 @@ io.on('connection', (socket) => {
     });
 
     async function notifyChannelsUpdated(opId) {
-        const { data: channels } = await supabase.from('channels').select('name, description').eq('op_id', opId);
+        const { data: channels } = await supabase.from('channels').select('name').eq('op_id', opId);
         const list = channels.map(c => c.name);
-        const fullConfig = channels.map(c => ({ name: c.name, description: c.description }));
 
         let defaultChannel = 'BASE';
-        let defaultDesc = "";
         if (channels && channels.length > 0) {
-            const baseCh = channels.find(c => c.name === 'BASE');
-            if (baseCh) {
-                defaultChannel = 'BASE';
-                defaultDesc = baseCh.description;
-            } else {
-                defaultChannel = channels[0].name;
-                defaultDesc = channels[0].description;
-            }
+            const hasBase = channels.some(c => c.name === 'BASE');
+            if (!hasBase) defaultChannel = channels[0].name;
         }
 
         io.to(`admin-${opId}`).emit('channels-updated', list);
-        io.to(opId).emit('operation-config', { 
-            channels: list, 
-            fullChannels: fullConfig,
-            opId, 
-            defaultChannel,
-            defaultDesc
-        });
+        io.to(opId).emit('operation-config', { channels: list, opId, defaultChannel });
     }
 
     // --- User Logic ---
