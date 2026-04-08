@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const { Server } = require("socket.io");
 const cors = require('cors');
 const supabase = require('./db.cjs'); // Intelligent DB selector (Supabase or Mock)
@@ -515,6 +516,19 @@ if (require.main === module) {
     const PORT = process.env.PORT || 3000;
     server.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
+        
+        // --- Render Keep-Alive Hack ---
+        const url = process.env.RENDER_EXTERNAL_URL;
+        if (url) {
+            console.log(`[KEEP-ALIVE] Monitoring ${url}/health every 10 minutes...`);
+            setInterval(() => {
+                https.get(`${url}/health`, (res) => {
+                    console.log(`[KEEP-ALIVE] Self-ping status: ${res.statusCode}`);
+                }).on('error', (err) => {
+                    console.error('[KEEP-ALIVE] Request Error:', err.message);
+                });
+            }, 600000); // 10 minutes
+        }
     });
 }
 
