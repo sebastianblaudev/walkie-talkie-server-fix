@@ -3,13 +3,13 @@ name: Build Android APK
 on:
   push:
       branches: [ main ]
-        workflow_dispatch:
+        worlokf_dispatch:
         
-        jobs:
+    jobs:
           build:
               runs-on: ubuntu-latest
               
-                  steps:
+              steps:
                         - name: Checkout code
                                 uses: actions/checkout@v4
                                 
