@@ -160,6 +160,27 @@ let remoteAnalyser;
 let remoteDataArray;
 let remoteCanvas, remoteCanvasCtx;
 
+// --- Background Audio & Media Session ---
+function updateMediaSession(type = 'COMMUNICATIONS') {
+    if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+            title: `WALKIE TALKIE [${roomId || 'STANDBY'}]`,
+            artist: 'SECURE COMMS',
+            album: currentOpId || 'OPERATIONAL',
+            artwork: [
+                { src: 'logo.png', sizes: '512x512', type: 'image/png' }
+            ]
+        });
+
+        // Set state to 'playing' to prevent the OS from suspending the tab
+        navigator.mediaSession.playbackState = 'playing';
+        
+        // Dummy handlers to satisfy some browsers
+        navigator.mediaSession.setActionHandler('play', () => {});
+        navigator.mediaSession.setActionHandler('pause', () => {});
+    }
+}
+
 // WebRTC
 const peers = {};
 const peerStates = {}; // Tracks { makingOffer: bool } per targetId
@@ -625,6 +646,8 @@ setInterval(() => {
         console.log("Inactivity detected.");
         triggerManDown();
     }
+    // Periodic MediaSession refresh to keep alive
+    if (isPoweredOn && roomId) updateMediaSession();
 }, 5000);
 
 powerBtn.addEventListener('click', async () => {
@@ -966,6 +989,15 @@ socket.on('offer', async (data) => {
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             socket.emit('answer', { target: targetId, answer: pc.localDescription });
+            
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: 'Secure Channel',
+                    artist: 'Walkie-Talkie',
+                    album: 'Live Transmission'
+                });
+                navigator.mediaSession.playbackState = "playing";
+            }
         }
     } catch (e) {
         console.error("Negotiation Error:", e);
