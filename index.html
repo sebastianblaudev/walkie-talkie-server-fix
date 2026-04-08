@@ -241,26 +241,7 @@
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script type="module" src="app.js"></script>
 
-    <!-- Script to bridge the new UI with the old Logic -->
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const startOverlay = document.getElementById('start-overlay');
-            const powerBtn = document.getElementById('power-btn');
-            const joinBtn = document.getElementById('join-btn');
 
-            startOverlay.addEventListener('click', () => {
-                // Simulate Power On
-                powerBtn.click();
-
-                // Wait a bit for power on init then Join
-                setTimeout(() => {
-                    joinBtn.click();
-                    startOverlay.style.opacity = '0';
-                    setTimeout(() => startOverlay.remove(), 500);
-                }, 500);
-            });
-        });
-    </script>
 </body>
 
 </html>

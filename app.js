@@ -8,14 +8,21 @@ const getServerUrl = () => {
     const hostname = window.location.hostname;
     const port = window.location.port;
 
-    // If we are on port 3001 (Vite/Dev), we must connect to port 3000 (Backend)
-    // regardless of whether we are on 'localhost' or an IP like '172.x.x.x'
-    if (port === '3001' || port === '5173') {
+    // If we are on port 3001/5173 (Vite/Dev), connect to local backend
+    if (port === '3001' || port === '5173' || hostname === 'localhost') {
+        if (hostname === 'localhost' && !port) {
+            // Likely Capacitor on Android/iOS
+            return "https://walkie-talkie-server-fix.onrender.com";
+        }
         return `http://${hostname}:3000`;
     }
 
-    // 3. Fallback to current origin (Production or default)
-    return window.location.origin;
+    // 3. Fallback to production Render URL if not on a standard web domain
+    if (hostname.includes('onrender.com')) {
+        return window.location.origin;
+    }
+
+    return "https://walkie-talkie-server-fix.onrender.com";
 };
 
 const serverUrl = getServerUrl();
@@ -1007,6 +1014,60 @@ if (disconnectBtn) {
         if (confirm('Disconnect from secure network?')) {
             forcePowerOff();
             profileSheet.classList.remove('show');
+        }
+    });
+}
+
+// --- Start Overlay Logic ---
+const startOverlay = document.getElementById('start-overlay');
+if (startOverlay) {
+    startOverlay.addEventListener('click', async () => {
+        console.log("Start activation requested...");
+        
+        // Ensure Power On
+        if (!isPoweredOn) {
+            powerBtn.click();
+        }
+
+        // Wait for initializing
+        statusText.innerText = "LINKING...";
+        
+        setTimeout(() => {
+            if (isPoweredOn) {
+                if (opIdParam && tokenParam) {
+                    // Handled by socket connect listener usually, but force here if needed
+                    socket.emit('join-operation', {
+                        opId: opIdParam,
+                        token: tokenParam,
+                        userId: userId,
+                        callSign: userCallSign
+                    });
+                } else {
+                    joinBtn.click();
+                }
+                
+                startOverlay.style.opacity = '0';
+                setTimeout(() => startOverlay.remove(), 500);
+            } else {
+                statusText.innerText = "RETRIEVING ACCESS...";
+            }
+        }, 800);
+    });
+}
+
+// --- Hidden Server Config ---
+const serverConfigBtn = document.getElementById('server-config-btn');
+if (serverConfigBtn) {
+    let clickCount = 0;
+    serverConfigBtn.addEventListener('click', () => {
+        clickCount++;
+        if (clickCount >= 5) {
+            const newUrl = prompt("Enter Tactical Server URL:", serverUrl);
+            if (newUrl) {
+                localStorage.setItem('walkieTalkieServer', newUrl);
+                window.location.reload();
+            }
+            clickCount = 0;
         }
     });
 }
