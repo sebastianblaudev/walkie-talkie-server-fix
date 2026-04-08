@@ -73,6 +73,24 @@ try {
     console.warn("Capacitor App plugin not found, skipping deep link attach.");
 }
 
+// --- Auto-Initialize Logic ---
+const autoInit = () => {
+    console.log("System Auto-Initialization...");
+    if (!isPoweredOn) {
+        powerBtn.click();
+    }
+};
+
+window.addEventListener('load', () => {
+    // Try auto-init after a short delay
+    setTimeout(autoInit, 1000);
+});
+
+// Also trigger on first touch anywhere if not powered on
+document.addEventListener('touchstart', () => {
+    if (!isPoweredOn) autoInit();
+}, { once: true });
+
 function generateUUID() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
         var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
@@ -673,6 +691,7 @@ powerBtn.addEventListener('click', async () => {
                 chItems.forEach(i => { if (i.getAttribute('data-channel') === 'BASE') targetCh = 'BASE'; });
                 joinRoom(targetCh);
             }
+            updateOverlayState();
         } catch (err) {
             console.error("Error accessing microphone:", err);
             statusText.innerText = "MIC ERROR";
@@ -1018,42 +1037,19 @@ if (disconnectBtn) {
     });
 }
 
-// --- Start Overlay Logic ---
+// --- Start Overlay Logic (Auto-hide if power on succeeds) ---
 const startOverlay = document.getElementById('start-overlay');
-if (startOverlay) {
-    startOverlay.addEventListener('click', async () => {
-        console.log("Start activation requested...");
-        
-        // Ensure Power On
-        if (!isPoweredOn) {
-            powerBtn.click();
-        }
 
-        // Wait for initializing
-        statusText.innerText = "LINKING...";
-        
-        setTimeout(() => {
-            if (isPoweredOn) {
-                if (opIdParam && tokenParam) {
-                    // Handled by socket connect listener usually, but force here if needed
-                    socket.emit('join-operation', {
-                        opId: opIdParam,
-                        token: tokenParam,
-                        userId: userId,
-                        callSign: userCallSign
-                    });
-                } else {
-                    joinBtn.click();
-                }
-                
-                startOverlay.style.opacity = '0';
-                setTimeout(() => startOverlay.remove(), 500);
-            } else {
-                statusText.innerText = "RETRIEVING ACCESS...";
-            }
-        }, 800);
-    });
+function updateOverlayState() {
+    if (isPoweredOn && startOverlay) {
+        startOverlay.style.opacity = '0';
+        setTimeout(() => startOverlay.remove(), 500);
+    }
 }
+
+// Watch for power state to hide overlay automatically
+const originalPowerOn = powerBtn.onclick; // We don't use onclick, we use listeners. 
+// Instead, let's just check in an interval or trigger from the click listener itself.
 
 // --- Hidden Server Config ---
 const serverConfigBtn = document.getElementById('server-config-btn');
