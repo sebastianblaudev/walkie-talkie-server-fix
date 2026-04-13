@@ -9,7 +9,9 @@ const supabase = require('./db.cjs'); // Intelligent DB selector (Supabase or Mo
 const app = express();
 const path = require('path');
 app.use(cors());
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, 'dist'))); // Serve Vite build if exists
+app.use(express.static(path.join(__dirname, 'public'))); // Serve PWA assets
+app.use(express.static(__dirname)); // Serve root assets (app.js, style.css, etc.)
 
 // --- Pretty URLs ---
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'landing.html')));
