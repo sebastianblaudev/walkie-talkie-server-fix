@@ -878,8 +878,9 @@ function createPeerConnection(targetId) {
     }
 
     pc.ontrack = (event) => {
-        updateDebug(`Track Received from ${targetId}`);
         const stream = event.streams[0];
+        updateDebug(`Track Received from ${targetId}`);
+        console.log(`[WebRTC] Track matched: ${stream.id}`);
         
         let remoteAudio = document.getElementById(`audio-${targetId}`);
         if (!remoteAudio) {
@@ -893,7 +894,18 @@ function createPeerConnection(targetId) {
         
         remoteAudio.srcObject = stream;
         remoteAudio.volume = 1.0;
-        remoteAudio.play().catch(e => console.error("Playback block: ", e));
+        
+        // Ensure play happens after user interaction handling
+        const playRemote = () => {
+            remoteAudio.play().catch(e => {
+                console.warn("Playback blocked, waiting for interaction", e);
+                updateDebug("TAP SCREEN TO HEAR AUDIO");
+                statusText.innerText = "AUDIO BLOCKED";
+                statusText.classList.add('error-blink');
+            });
+        };
+
+        playRemote();
 
         if (audioContext) {
             audioContext.resume().then(() => {
@@ -905,13 +917,30 @@ function createPeerConnection(targetId) {
                         remoteDataArray = new Uint8Array(remoteAnalyser.frequencyBinCount);
                         
                         source.connect(remoteAnalyser);
+                        // CRITICAL: Connect to destination so it actually sounds through the graph
+                        source.connect(audioContext.destination);
+                        
                         remoteAudio.connectedToContext = true;
-                        updateDebug("Audio Visualizer Attached natively");
+                        updateDebug("Audio Graph: CONNECTED");
+                        statusText.classList.remove('error-blink');
+                        if (statusText.innerText === "AUDIO BLOCKED") statusText.innerText = "ONLINE";
                     }
                 } catch (e) {
                     updateDebug("Bridge Error: " + e.message);
                 }
             });
+        }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+        console.log(`[WebRTC] ICE State with ${targetId}: ${pc.iceConnectionState}`);
+        updateDebug(`P2P: ${pc.iceConnectionState.toUpperCase()}`);
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+            statusText.innerText = "LINK LOST";
+            statusText.classList.add('error-blink');
+        } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+            statusText.classList.remove('error-blink');
+            statusText.innerText = "ONLINE";
         }
     };
 
